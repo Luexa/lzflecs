@@ -4,4 +4,4 @@
 
 # Copyright
 
-`lzflecs` is available under the [MIT License](LICENSE), and all contributions should be licensed as such unless explicitly stated otherwise.
+`lzflecs` is available under the [MIT License](LICENSE), and all contributions shall be licensed as such unless explicitly stated otherwise.

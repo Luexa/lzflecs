@@ -1,0 +1,8 @@
+{
+    "build_options": [
+        {
+            "name": "invoked-by-zls",
+            "value": "true"
+        }
+    ]
+}
