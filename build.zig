@@ -16,7 +16,7 @@ const comptimePrint = std.fmt.comptimePrint;
 const fmtId = std.zig.fmtId;
 const fmtEscapes = std.zig.fmtEscapes;
 
-pub const flecs_version = SemanticVersion.parse("3.1.5") catch unreachable;
+pub const flecs_version = SemanticVersion.parse("3.2.0") catch unreachable;
 
 pub fn build(builder: *Build) void {
     const invoked_by_zls = if (builder.user_input_options.contains("invoked-by-zls"))

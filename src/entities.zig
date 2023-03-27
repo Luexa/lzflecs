@@ -6,6 +6,7 @@ pub const Component = @import("c.zig").EcsComponent;
 pub const Identifier = @import("c.zig").EcsIdentifier;
 pub const Iterable = @import("c.zig").EcsIterable;
 pub const Poly = @import("c.zig").EcsPoly;
+pub const Target = @import("c.zig").EcsTarget;
 
 pub const QueryTag = struct {};
 pub const ObserverTag = struct {};
@@ -21,6 +22,7 @@ pub const Transitive = struct {};
 pub const Reflexive = struct {};
 pub const Final = struct {};
 pub const DontInherit = struct {};
+pub const AlwaysOverride = struct {};
 pub const Symmetric = struct {};
 pub const Exclusive = struct {};
 pub const Acyclic = struct {};
@@ -52,7 +54,11 @@ pub const OnDeleteTarget = struct {};
 pub const Remove = struct {};
 pub const Delete = struct {};
 pub const Panic = struct {};
+pub const Flatten = struct {};
 pub const DefaultChildComponent = struct {};
+pub const PredEq = struct {};
+pub const PredMatch = struct {};
+pub const PredLookup = struct {};
 pub const Empty = struct {};
 pub const OnStart = struct {};
 pub const PreFrame = struct {};
@@ -285,6 +291,13 @@ pub const iptr = extern struct { isize };
 
 pub const @"f32" = extern struct { f32 };
 pub const @"f64" = extern struct { f64 };
+
+
+// --------------------
+// `FLECS_PLECS` addon.
+// --------------------
+
+pub const Script = @import("c.zig").EcsScript;
 
 
 test {

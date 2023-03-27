@@ -1,10 +1,11 @@
 pub const EcsWorldQuitWorkers = 1 << 0;
 pub const EcsWorldReadonly = 1 << 1;
-pub const EcsWorldQuit = 1 << 2;
-pub const EcsWorldFini = 1 << 3;
-pub const EcsWorldMeasureFrameTime = 1 << 4;
-pub const EcsWorldMeasureSystemTime = 1 << 5;
-pub const EcsWorldMultiThreaded = 1 << 6;
+pub const EcsWorldInit = 1 << 2;
+pub const EcsWorldQuit = 1 << 3;
+pub const EcsWorldFini = 1 << 4;
+pub const EcsWorldMeasureFrameTime = 1 << 5;
+pub const EcsWorldMeasureSystemTime = 1 << 6;
+pub const EcsWorldMultiThreaded = 1 << 7;
 
 pub const EcsOsApiHighResolutionTimer = 1 << 0;
 pub const EcsOsApiLogWithColors = 1 << 1;
@@ -38,6 +39,7 @@ pub const EcsIdDontInherit = 1 << 7;
 pub const EcsIdTag = 1 << 8;
 pub const EcsIdWith = 1 << 9;
 pub const EcsIdUnion = 1 << 11;
+pub const EcsIdAlwaysOverride = 1 << 12;
 
 pub const EcsIdHasOnAdd = 1 << 15;
 pub const EcsIdHasOnRemove = 1 << 16;
@@ -61,6 +63,8 @@ pub const EcsIterEntityOptional = 1 << 5;
 pub const EcsIterNoResults = 1 << 6;
 pub const EcsIterIgnoreThis = 1 << 7;
 pub const EcsIterMatchVar = 1 << 8;
+pub const EcsIterHasCondSet = 1 << 10;
+pub const EcsIterProfile = 1 << 11;
 
 pub const EcsEventTableOnly = 1 << 8;
 pub const EcsEventNoOnSet = 1 << 16;
@@ -74,6 +78,8 @@ pub const EcsFilterMatchAnything = 1 << 6;
 pub const EcsFilterNoData = 1 << 7;
 pub const EcsFilterIsInstanced = 1 << 8;
 pub const EcsFilterPopulate = 1 << 9;
+pub const EcsFilterHasCondSet = 1 << 10;
+pub const EcsFilterUnresolvedByName = 1 << 1;
 
 pub const EcsTableHasBuiltins = 1 << 1;
 pub const EcsTableIsPrefab = 1 << 2;
@@ -96,6 +102,7 @@ pub const EcsTableHasOnSet = 1 << 17;
 pub const EcsTableHasUnSet = 1 << 18;
 
 pub const EcsTableHasObserved = 1 << 20;
+pub const EcsTableHasTarget = 1 << 21;
 
 pub const EcsTableMarkedForDelete = 1 << 30;
 
@@ -143,7 +150,8 @@ pub const EcsCascade = 1 << 5;
 pub const EcsParent = 1 << 6;
 pub const EcsIsVariable = 1 << 7;
 pub const EcsIsEntity = 1 << 8;
-pub const EcsFilter = 1 << 9;
+pub const EcsIsName = 1 << 9;
+pub const EcsFilter = 1 << 10;
 
 pub const EcsTraverseFlags =
     EcsUp |
@@ -153,6 +161,18 @@ pub const EcsTraverseFlags =
     EcsCascade |
     EcsParent
 ;
+
+pub const EcsTermMatchAny = 1 << 0;
+pub const EcsTermMatchAnySrc = 1 << 1;
+pub const EcsTermSrcFirstEq = 1 << 2;
+pub const EcsTermSrcSecondEq = 1 << 3;
+pub const EcsTermTransitive = 1 << 4;
+pub const EcsTermReflexive = 1 << 5;
+pub const EcsTermIdInherited = 1 << 6;
+
+pub const EcsIterNextYield = 0;
+pub const EcsIterCurYield = -1;
+pub const EcsIterNext = 1;
 
 pub const ECS_ID_FLAGS_MASK: u64 = 0x0F << 60;
 pub const ECS_ENTITY_MASK: u64 = 0xFFFFFFFF;
@@ -223,7 +243,6 @@ pub const ecs_id_record_t = opaque {};
 pub const ecs_table_record_t = opaque {};
 pub const ecs_poly_t = anyopaque;
 pub const ecs_mixins_t = opaque {};
-pub const ecs_vector_t = opaque {};
 
 pub const ecs_type_t = extern struct {
     array: ?[*]ecs_id_t,
@@ -387,6 +406,8 @@ pub const ecs_term_t = extern struct {
 
     field_index: i32,
     idr: ?*ecs_id_record_t,
+
+    flags: ecs_flags16_t,
 
     move: bool,
 };
@@ -728,6 +749,8 @@ pub const ecs_query_table_node_t = opaque {};
 pub const ecs_event_id_record_t = opaque {};
 pub const ecs_stack_page_t = opaque {};
 pub const ecs_table_cache_hdr_t = opaque {};
+pub const ecs_rule_var_t = opaque {};
+pub const ecs_rule_op_t = opaque {};
 pub const ecs_rule_op_ctx_t = opaque {};
 
 pub const ecs_event_record_t = extern struct {
@@ -846,22 +869,26 @@ pub const ecs_query_iter_t = extern struct {
 
 pub const ecs_snapshot_iter_t = extern struct {
     filter: ecs_filter_t,
-    tables: ?*ecs_vector_t,
+    tables: ecs_vec_t,
     index: i32,
+};
+
+pub const ecs_rule_op_profile_t = extern struct {
+    count: [2]i32,
 };
 
 pub const ecs_rule_iter_t = extern struct {
     rule: ?*const ecs_rule_t,
-    registers: ?[*]ecs_var_t,
+    vars: ?[*]ecs_var_t,
+    rule_vars: ?*const ecs_rule_var_t,
+    ops: ?*const ecs_rule_op_t,
     op_ctx: ?*ecs_rule_op_ctx_t,
 
-    columns: ?[*]i32,
-
-    entity: ecs_entity_t,
+    written: ?[*]u64,
 
     redo: bool,
-    op: i32,
-    sp: i32,
+    op: i16,
+    sp: i16,
 };
 
 pub const ecs_iter_cache_t = extern struct {
@@ -1126,6 +1153,11 @@ pub const EcsPoly = extern struct {
     poly: ?*ecs_poly_t,
 };
 
+pub const EcsTarget = extern struct {
+    count: i32,
+    target: ?*ecs_record_t,
+};
+
 pub const EcsIterable = extern struct {
     init: ecs_iter_init_action_t,
 };
@@ -1143,21 +1175,31 @@ pub const ecs_event_desc_t = extern struct {
     flags: ecs_flags32_t,
 };
 
+pub const ecs_flatten_desc_t = extern struct {
+    keep_names: bool,
+    lose_depth: bool,
+};
+
 pub extern fn ecs_vec_init(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
     elem_count: i32,
 ) *ecs_vec_t;
 
+pub extern fn ecs_vec_init_if(
+    vec: *ecs_vec_t,
+    size: i32,
+) void;
+
 pub extern fn ecs_vec_fini(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
 ) void;
 
 pub extern fn ecs_vec_reset(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
 ) *ecs_vec_t;
@@ -1167,7 +1209,7 @@ pub extern fn ecs_vec_clear(
 ) void;
 
 pub extern fn ecs_vec_append(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
 ) *anyopaque;
@@ -1183,33 +1225,47 @@ pub extern fn ecs_vec_remove_last(
 ) void;
 
 pub extern fn ecs_vec_copy(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
 ) ecs_vec_t;
 
 pub extern fn ecs_vec_reclaim(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
 ) void;
 
 pub extern fn ecs_vec_set_size(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
+    vec: *ecs_vec_t,
+    size: i32,
+    elem_count: i32,
+) void;
+
+pub extern fn ecs_vec_set_min_size(
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
     elem_count: i32,
 ) void;
 
 pub extern fn ecs_vec_set_count(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
+    vec: *ecs_vec_t,
+    size: i32,
+    elem_count: i32,
+) void;
+
+pub extern fn ecs_vec_set_min_count(
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
     elem_count: i32,
 ) void;
 
 pub extern fn ecs_vec_grow(
-    allocator: *ecs_allocator_t,
+    allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
     elem_count: i32,
@@ -1334,12 +1390,12 @@ pub extern fn ecs_map_init_w_params(
 ) void;
 
 pub extern fn ecs_map_init_if(
-    map: ?*ecs_map_t,
+    map: *ecs_map_t,
     allocator: ?*ecs_allocator_t,
 ) void;
 
 pub extern fn ecs_map_init_w_params_if(
-    map: ?*ecs_map_t,
+    map: *ecs_map_t,
     params: *ecs_map_params_t,
 ) void;
 
@@ -1897,6 +1953,10 @@ pub extern fn ecs_read_end(
     record: *const ecs_record_t,
 ) void;
 
+pub extern fn ecs_record_get_entity(
+    record: *const ecs_record_t,
+) ecs_entity_t;
+
 pub extern fn ecs_record_get_id(
     world: *ecs_world_t,
     record: *const ecs_record_t,
@@ -1908,6 +1968,12 @@ pub extern fn ecs_record_get_mut_id(
     record: *ecs_record_t,
     id: ecs_id_t,
 ) ?*anyopaque;
+
+pub extern fn ecs_record_has_id(
+    world: *ecs_world_t,
+    record: *const ecs_record_t,
+    id: ecs_id_t,
+) bool;
 
 pub extern fn ecs_emplace_id(
     world: *ecs_world_t,
@@ -2001,6 +2067,11 @@ pub extern fn ecs_get_target(
     index: i32,
 ) ecs_entity_t;
 
+pub extern fn ecs_get_parent(
+    world: *const ecs_world_t,
+    entity: ecs_entity_t,
+) ecs_entity_t;
+
 pub extern fn ecs_get_target_for_id(
     world: *const ecs_world_t,
     entity: ecs_entity_t,
@@ -2013,6 +2084,12 @@ pub extern fn ecs_get_depth(
     entity: ecs_entity_t,
     rel: ecs_entity_t,
 ) i32;
+
+pub extern fn ecs_flatten(
+    world: *ecs_world_t,
+    pair: ecs_id_t,
+    desc: ?*const ecs_flatten_desc_t,
+) void;
 
 pub extern fn ecs_count_id(
     world: *const ecs_world_t,
@@ -2157,7 +2234,7 @@ pub extern fn ecs_id_is_union(
 ) bool;
 
 pub extern fn ecs_id_in_use(
-    world: *ecs_world_t,
+    world: *const ecs_world_t,
     id: ecs_id_t,
 ) bool;
 
@@ -2332,7 +2409,7 @@ pub extern fn ecs_query_fini(
 ) void;
 
 pub extern fn ecs_query_get_filter(
-    query: *ecs_query_t,
+    query: *const ecs_query_t,
 ) *const ecs_filter_t;
 
 pub extern fn ecs_query_iter(
@@ -2354,7 +2431,7 @@ pub extern fn ecs_query_next_table(
 
 pub extern fn ecs_query_populate(
     iter: *ecs_iter_t,
-) void;
+) c_int;
 
 pub extern fn ecs_query_changed(
     query: ?*ecs_query_t,
@@ -2371,17 +2448,17 @@ pub extern fn ecs_query_set_group(
 ) void;
 
 pub extern fn ecs_query_get_group_ctx(
-    query: *ecs_query_t,
+    query: *const ecs_query_t,
     group_id: u64,
 ) ?*anyopaque;
 
 pub extern fn ecs_query_get_group_info(
-    query: *ecs_query_t,
+    query: *const ecs_query_t,
     group_id: u64,
 ) ?*const ecs_query_group_info_t;
 
 pub extern fn ecs_query_orphaned(
-    query: *ecs_query_t,
+    query: *const ecs_query_t,
 ) bool;
 
 pub extern fn ecs_query_str(
@@ -2704,6 +2781,11 @@ pub extern fn ecs_value_new(
     type_: ecs_entity_t,
 ) ?*anyopaque;
 
+pub extern fn ecs_value_w_type_info(
+    world: *ecs_world_t,
+    ti: *const ecs_type_info_t,
+) ?*anyopaque;
+
 pub extern fn ecs_value_fini_w_type_info(
     world: *const ecs_world_t,
     ti: *const ecs_type_info_t,
@@ -2767,6 +2849,8 @@ pub extern fn ecs_value_move_ctor(
 pub extern fn ecs_log_set_level(
     level: c_int,
 ) c_int;
+
+pub extern fn ecs_log_get_level() c_int;
 
 pub extern fn ecs_log_enable_colors(
     enabled: bool,
@@ -2834,6 +2918,7 @@ pub extern const EcsTransitive: ecs_entity_t;
 pub extern const EcsReflexive: ecs_entity_t;
 pub extern const EcsFinal: ecs_entity_t;
 pub extern const EcsDontInherit: ecs_entity_t;
+pub extern const EcsAlwaysOverride: ecs_entity_t;
 pub extern const EcsSymmetric: ecs_entity_t;
 pub extern const EcsExclusive: ecs_entity_t;
 pub extern const EcsAcyclic: ecs_entity_t;
@@ -2865,7 +2950,11 @@ pub extern const EcsOnDeleteTarget: ecs_entity_t;
 pub extern const EcsRemove: ecs_entity_t;
 pub extern const EcsDelete: ecs_entity_t;
 pub extern const EcsPanic: ecs_entity_t;
+pub extern const EcsFlatten: ecs_entity_t;
 pub extern const EcsDefaultChildComponent: ecs_entity_t;
+pub extern const EcsPredEq: ecs_entity_t;
+pub extern const EcsPredMatch: ecs_entity_t;
+pub extern const EcsPredLookup: ecs_entity_t;
 pub extern const EcsEmpty: ecs_entity_t;
 pub extern const EcsOnStart: ecs_entity_t;
 pub extern const EcsPreFrame: ecs_entity_t;
@@ -2888,6 +2977,7 @@ pub extern const FLECS__EEcsTickSource: ecs_entity_t;
 // pub extern const FLECS__EEcsPipelineQuery: ecs_entity_t;
 pub extern const FLECS__EEcsTimer: ecs_entity_t;
 pub extern const FLECS__EEcsRateFilter: ecs_entity_t;
+pub extern const FLECS__EEcsTarget: ecs_entity_t;
 pub extern const FLECS__EEcsPipeline: ecs_entity_t;
 
 // // Avoid `std.builtin.VaList` on unsupported platforms.
@@ -3039,6 +3129,15 @@ pub const EcsRest = extern struct {
     impl: ?*anyopaque,
 };
 
+pub extern fn ecs_rest_server_init(
+    world: *ecs_world_t,
+    desc: ?*const ecs_http_server_desc_t,
+) ?*ecs_http_server_t;
+
+pub extern fn ecs_rest_server_fini(
+    srv: *ecs_http_server_t,
+) void;
+
 pub extern fn FlecsRestImport(
     world: *ecs_world_t,
 ) void;
@@ -3053,6 +3152,7 @@ pub extern const FLECS__EEcsRest: ecs_entity_t;
 pub const EcsTimer = extern struct {
     timeout: ecs_ftime_t,
     time: ecs_ftime_t,
+    overshoot: ecs_ftime_t,
     fired_count: i32,
     active: bool,
     single_shot: bool,
@@ -3392,7 +3492,8 @@ pub const ecs_system_stats_t = extern struct {
 };
 
 pub const ecs_pipeline_stats_t = extern struct {
-    systems: ?*ecs_vector_t,
+    _canary: i8,
+    systems: ecs_vec_t,
     system_stats: ecs_map_t,
 
     t: i32,
@@ -4013,7 +4114,7 @@ pub const ecs_member_t = extern struct {
 };
 
 pub const EcsStruct = extern struct {
-    members: ?*ecs_vector_t,
+    members: ecs_vec_t,
 };
 
 pub const ecs_enum_constant_t = extern struct {
@@ -4198,7 +4299,7 @@ pub const ecs_meta_type_op_t = extern struct {
 };
 
 pub const EcsMetaTypeSerialized = extern struct {
-    ops: ?*ecs_vector_t,
+    ops: ecs_vec_t,
 };
 
 pub const ecs_meta_scope_t = extern struct {
@@ -4212,7 +4313,7 @@ pub const ecs_meta_scope_t = extern struct {
 
     comp: ?*const EcsComponent,
     @"opaque": ?*const EcsOpaque,
-    vector: ?*?*ecs_vector_t,
+    vector: ?*ecs_vec_t,
     members: ?*ecs_hashmap_t,
     is_collection: bool,
     is_inline_array: bool,
@@ -4494,6 +4595,7 @@ pub extern const FLECS__Eecs_entity_t: ecs_entity_t;
 pub const ecs_expr_var_t = extern struct {
     name: ?[*:0]u8,
     value: ecs_value_t,
+    owned: bool,
 };
 
 pub const ecs_expr_var_scope_t = extern struct {
@@ -4618,6 +4720,19 @@ pub extern fn ecs_parse_expr_token(
 // `FLECS_PLECS` addon.
 // --------------------
 
+pub const EcsScript = extern struct {
+    using: ecs_vec_t,
+    script: ?[*:0]u8,
+    prop_defaults: ecs_vec_t,
+    world: ?*ecs_world_t,
+};
+
+pub const ecs_script_desc_t = extern struct {
+    entity: ecs_entity_t,
+    filename: ?[*:0]const u8,
+    str: ?[*:0]const u8,
+};
+
 pub extern fn ecs_plecs_from_str(
     world: *ecs_world_t,
     name: ?[*:0]const u8,
@@ -4628,6 +4743,31 @@ pub extern fn ecs_plecs_from_file(
     world: *ecs_world_t,
     filename: [*:0]const u8,
 ) c_int;
+
+pub extern fn ecs_script_init(
+    world: *ecs_world_t,
+    desc: *const ecs_script_desc_t,
+) ecs_entity_t;
+
+pub extern fn ecs_script_update(
+    world: *ecs_world_t,
+    script: ecs_entity_t,
+    instance: ecs_entity_t,
+    str: [*:0]const u8,
+    vars: ?*ecs_vars_t,
+) c_int;
+
+pub extern fn ecs_script_clear(
+    world: *ecs_world_t,
+    script: ecs_entity_t,
+    instance: ecs_entity_t,
+) void;
+
+pub extern fn EcsScriptImport(
+    world: *ecs_world_t,
+) void;
+
+pub extern var FLECS__EEcsScript: ecs_entity_t;
 
 
 // --------------------
@@ -4680,8 +4820,19 @@ pub extern fn ecs_rule_next_instanced(
 ) bool;
 
 pub extern fn ecs_rule_str(
-    rule: *ecs_rule_t,
+    rule: *const ecs_rule_t,
 ) [*:0]u8;
+
+pub extern fn ecs_rule_str_w_profile(
+    rule: *const ecs_rule_t,
+    it: *const ecs_iter_t,
+) [*:0]u8;
+
+pub extern fn ecs_rule_parse_vars(
+    rule: *ecs_rule_t,
+    it: *ecs_iter_t,
+    expr: [*:0]const u8,
+) ?[*:0]const u8;
 
 
 // -----------------------
@@ -4754,6 +4905,8 @@ pub extern fn ecs_parse_term(
 // `FLECS_HTTP` addon.
 // -------------------
 
+pub const ECS_HTTP_HEADER_COUNT_MAX = 32;
+
 pub const ecs_http_server_t = opaque {};
 
 pub const ecs_http_connection_t = extern struct {
@@ -4784,8 +4937,8 @@ pub const ecs_http_request_t = extern struct {
     method: ecs_http_method_t,
     path: ?[*:0]u8,
     body: ?[*:0]u8,
-    headers: [32]ecs_http_key_value_t,
-    params: [32]ecs_http_key_value_t,
+    headers: [ECS_HTTP_HEADER_COUNT_MAX]ecs_http_key_value_t,
+    params: [ECS_HTTP_HEADER_COUNT_MAX]ecs_http_key_value_t,
     header_count: i32,
     param_count: i32,
 
@@ -4834,6 +4987,24 @@ pub extern fn ecs_http_server_dequeue(
 pub extern fn ecs_http_server_stop(
     server: *ecs_http_server_t,
 ) void;
+
+pub extern fn ecs_http_server_http_request(
+    srv: *ecs_http_server_t,
+    req: [*]const u8, // [*:0]const u8 if len isn't provided.
+    len: i32,
+    reply_out: *ecs_http_reply_t,
+) c_int;
+
+pub extern fn ecs_http_server_request(
+    srv: *ecs_http_server_t,
+    method: [*:0]const u8,
+    req: [*:0]const u8,
+    reply_out: *ecs_http_reply_t,
+) c_int;
+
+pub extern fn ecs_http_server_ctx(
+    srv: *ecs_http_server_t,
+) ?*anyopaque;
 
 pub extern fn ecs_http_get_header(
     req: *const ecs_http_request_t,

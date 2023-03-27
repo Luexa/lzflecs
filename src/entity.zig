@@ -598,6 +598,7 @@ pub const IdStorageTypeInfo = union(enum) {
 
         const EcsWorldStats: PermittedRegistrations = .component;
         const EcsPipelineStats: PermittedRegistrations = .component;
+        const EcsScript: PermittedRegistrations = .component;
     };
 
     inline fn permittedRegistrations(type_info: IdStorageTypeInfo) PermittedRegistrations {
