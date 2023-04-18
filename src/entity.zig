@@ -7,9 +7,108 @@ const enabled_addons = flecs.enabled_addons;
 const entities = flecs.entities;
 const World = flecs.World;
 
-const ExternDecl = blk: {
-    @setEvalBranchQuota(@typeInfo(c).Struct.decls.len * 2);
-    break :blk std.meta.DeclEnum(c);
+pub const IdStorage = @import("entity/internals.zig").IdStorage;
+pub const IntendedUse = @import("entity/internals.zig").IntendedUse;
+pub const id_tracker = @import("entity/internals.zig").id_tracker;
+
+/// Allow user to override metadata for an automatically registered component
+/// or global entity type.
+///
+/// Metadata overrides are defined in a declaration `flecs_meta`. If the value
+/// of this declaration is not explicitly typed, it is permitted to omit the
+/// enclosing `.{ .override = ... }` union initialization syntax for the `name`
+/// and `symbol` fields. The following are equivalent:
+///
+/// ```zig
+/// pub const flecs_meta = .{ .name = .{ .override = "FooComponent" } };
+///
+/// pub const flecs_meta = .{ .name = "FooComponent" };
+/// ```
+pub const EntityTypeMeta = struct {
+    /// Configure the entity name for this type.
+    ///
+    /// By default the entity name is simply `@typeName(T)`, but for various
+    /// reasons it may be desirable to override the qualified name of the
+    /// component.
+    ///
+    /// Behavior of each union variant is described as follows:
+    ///
+    ///  - `.auto` will use `@typeName(T)` as the name for a component `T`.
+    ///    For instance, component in `src/bar.zig` would be named something
+    ///    like `bar.Example` (even though users may import the component as
+    ///    `foo.bar.Example`).
+    ///
+    ///  - `.override` will use the provided string as the name for the component.
+    ///
+    ///  - `.override_split` will prepend the first element of the provided tuple
+    ///    to the second element of the tuple.
+    ///
+    ///  - `.disable` will cause the component to not be given a name.
+    ///
+    /// Names for pointers to this component (e.g. `*T` or `[]T`) will be generated
+    /// using the following methods:
+    ///
+    ///  - The qualified name inferred from `.auto` or specified with `.override`
+    ///    will be split at the final `.` separator to separate the namespace from
+    ///    the unqualified name. The unqualified name will be prefixed with pointer
+    ///    symbols like `*` and `[]`, then the namespace will be prepended to the
+    ///    resulting string. For instance, `*bar.Example` will have the component
+    ///    name `bar.*Example`.
+    ///
+    ///  - With `.override_split`, rather than splitting a string, the namespace is
+    ///    assumed to be the first element of the tuple and the unqualified name is
+    ///    assumed to be the second element of the tuple. For instance, a pointer
+    ///    `*T` to a component `T` with the split name `.{ "foo.bar.", "baz.A" }`
+    ///    will have the component name `foo.bar.*baz.A`.
+    ///
+    ///  - With `.disable`, the pointer component will not be given a name.
+    name: NameConfig = .auto,
+
+    /// Configure the entity symbol for this type.
+    ///
+    /// The rules for this value follow the same rules as the `.name` field.
+    symbol: NameConfig = .disable,
+
+    /// Indicate that the component should always be a pointer. The component
+    /// name will not be prefixed with a pointer symbol unless used as a slice
+    /// or pointer-to-pointer.
+    ///
+    ///  - `bar.T` would not be usable as a component (i.e. treated like opaque type).
+    ///
+    ///  - `*bar.T` would be given the component name `bar.T`.
+    ///
+    ///  - `[]bar.T` would be given the component name `bar.[]T`.
+    ///
+    ///  - `**bar.T` would be given the component name `bar.**T`.
+    pointer_only: bool = false,
+
+    /// Configure auto-registration behavior for this type.
+    ///
+    /// By default the type is registered as a component in most cases, but in
+    /// certain contexts it can be registered as a simple entity (ID with no
+    /// component-specific metadata).
+    ///
+    /// Use the `.component` enum variant to specify that the type should always
+    /// be registered with component metadata.
+    ///
+    /// Use the `.global_entity` enum variant to specify that the type should
+    /// always be registered as a simple entity, without component metadata.
+    intended_use: IntendedUseConfig = .any,
+
+    pub const NameConfig = union(enum) {
+        auto: void,
+        override: [:0]const u8,
+        override_split: OverrideSplit,
+        disable: void,
+
+        pub const OverrideSplit = struct { []const u8, [:0]const u8 };
+    };
+
+    pub const IntendedUseConfig = enum {
+        any,
+        component,
+        global_entity,
+    };
 };
 
 /// Identifier used to look up entities and components within a Flecs world.
@@ -26,6 +125,20 @@ pub const Id = enum(c.ecs_entity_t) {
     /// Using this constant is discouraged as it defeats the purpose of Zig's
     /// optional types and error handling systems.
     pub const null_id = @intToEnum(Id, 0);
+
+    /// Unwrap an ID into a value guaranteed not to be `Id.null_id`.
+    ///
+    /// The existence of `Id.null_id` circumvents the Zig optional system but is
+    /// unfortunately necessary for ABI reasons and the fact that Zig optionals
+    /// cannot do optimizations for null enum variants. APIs should ideally not
+    /// return `Id.null_id`, but when they do this function can be used to convert
+    /// the possibly-null ID into a Zig optional.
+    pub inline fn nonNull(id: Id) ?Id {
+        return switch (id) {
+            null_id => null,
+            else => id,
+        };
+    }
 
     /// Create a pair describing the relationship between `first` and `second`.
     pub inline fn pair(first: anytype, second: anytype) Id {
@@ -61,6 +174,7 @@ pub const Id = enum(c.ecs_entity_t) {
         ));
     }
 
+    /// Strip the generation count from the ID.
     pub inline fn withoutGeneration(id: Id) Id {
         return @intToEnum(Id, c.ecs_strip_generation(@enumToInt(id)));
     }
@@ -491,398 +605,5 @@ pub const EntityView = extern struct {
     /// or if it is not empty (components have been explicitly added to the ID).
     pub inline fn isAlive(entity: EntityView) bool {
         return entity.world.isAlive(entity.id);
-    }
-};
-
-/// Internal container that provides a global variable that can hold dynamically
-/// assigned component IDs and global entity IDs.
-///
-/// Builtin Flecs types are automatically resolved to their corresponding entity
-/// ID rather than being assigned an ID through this scheme.
-pub fn IdStorage(comptime T: type) type {
-    comptime validateGlobalEntityType(T);
-    return struct {
-        var reset_count: u64 = 0;
-        var value: c.ecs_entity_t = 0;
-
-        pub const type_info = idStorageTypeInfo(T);
-        pub const permitted_registrations = type_info.permittedRegistrations();
-        pub const type_name: ?[:0]const u8 = switch (type_info) {
-            .user_defined => @typeName(T),
-            .builtin => |builtin_info| builtin_info.type_name,
-        };
-
-        pub inline fn get() c.ecs_entity_t {
-            switch (type_info) {
-                .user_defined => {
-                    if (builtin.is_test and reset_count != id_tracker.reset_count) {
-                        return 0;
-                    }
-                    return value;
-                },
-                .builtin => |builtin_info| {
-                    return @field(c, @tagName(builtin_info.extern_decl));
-                },
-            }
-        }
-
-        pub inline fn set(new_value: c.ecs_entity_t) void {
-            switch (type_info) {
-                .user_defined => {
-                    value = new_value;
-                    if (builtin.is_test) {
-                        reset_count = id_tracker.reset_count;
-                    }
-                },
-                .builtin => |builtin_info| {
-                    @field(c, @tagName(builtin_info.extern_decl)) = new_value;
-                },
-            }
-        }
-    };
-}
-
-pub const IdStorageTypeInfo = union(enum) {
-    user_defined: UserDefined,
-    builtin: Builtin,
-
-    pub const UserDefined = struct {
-        name: ?[:0]const u8 = null,
-        symbol: ?[:0]const u8 = null,
-
-        inline fn init(comptime T: type) UserDefined {
-            comptime {
-                switch (@typeInfo(T)) {
-                    .Struct, .Union, .Enum, .Opaque => {},
-                    else => return .{},
-                }
-
-                const type_name = @typeName(T);
-
-                const name: ?[:0]const u8 = if (@hasDecl(T, "flecs_name"))
-                    T.flecs_name
-                else
-                    type_name;
-
-                const symbol: ?[:0]const u8 = blk: {
-                    if (@hasDecl(T, "flecs_symbol")) break :blk T.flecs_symbol;
-                    if (!std.mem.endsWith(u8, type_name, ")")) {
-                        if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |last_separator| {
-                            break :blk type_name[(last_separator + 1).. :0];
-                        } else {
-                            break :blk type_name;
-                        }
-                    }
-                    break :blk null;
-                };
-
-                return .{
-                    .name = name,
-                    .symbol = symbol,
-                };
-            }
-        }
-    };
-
-    pub const Builtin = struct {
-        extern_decl: ExternDecl,
-        type_name: ?[:0]const u8 = null,
-        permitted_registrations: PermittedRegistrations = .none,
-    };
-
-    pub const PermittedRegistrations = enum {
-        none,
-        any,
-        component,
-        global_entity,
-
-        const EcsWorldStats: PermittedRegistrations = .component;
-        const EcsPipelineStats: PermittedRegistrations = .component;
-        const EcsScript: PermittedRegistrations = .component;
-    };
-
-    inline fn permittedRegistrations(type_info: IdStorageTypeInfo) PermittedRegistrations {
-        return switch (type_info) {
-            .user_defined => .any,
-            .builtin => |builtin_info| builtin_info.permitted_registrations,
-        };
-    }
-};
-
-fn idStorageTypeInfo(comptime T: type) IdStorageTypeInfo {
-    const UserDefined = IdStorageTypeInfo.UserDefined;
-    const PermittedRegistrations = IdStorageTypeInfo.PermittedRegistrations;
-    comptime {
-        if (@as(?ExternDecl, switch (T) {
-            flecs.QueryTag => .EcsQuery,
-            flecs.ObserverTag => .EcsObserver,
-            flecs.SystemTag => .EcsSystem,
-            flecs.WorldEntity => .EcsWorld,
-
-            // `FLECS_MONITOR` addon.
-            flecs.FlecsMonitor => .FLECS__EFlecsMonitor,
-
-            // `FLECS_META` addon.
-            Id => .FLECS__Eecs_entity_t,
-            flecs.bool => .FLECS__Eecs_bool_t,
-            flecs.char => .FLECS__Eecs_char_t,
-            flecs.byte => .FLECS__Eecs_byte_t,
-            flecs.string => .FLECS__Eecs_string_t,
-            flecs.u8 => .FLECS__Eecs_u8_t,
-            flecs.u16 => .FLECS_Eecs_u16_t,
-            flecs.u32 => .FLECS_Eecs_u32_t,
-            flecs.u64 => .FLECS_Eecs_u64_t,
-            flecs.uptr => .FLECS_Eecs_uptr_t,
-            flecs.i8 => .FLECS__Eecs_i8_t,
-            flecs.i16 => .FLECS_Eecs_i16_t,
-            flecs.i32 => .FLECS_Eecs_i32_t,
-            flecs.i64 => .FLECS_Eecs_i64_t,
-            flecs.iptr => .FLECS_Eecs_iptr_t,
-            flecs.f32 => .FLECS_Eecs_f32_t,
-            flecs.f64 => .FLECS_Eecs_f64_t,
-
-            else => null,
-        })) |override_decl| {
-            return .{
-                .builtin = .{
-                    .extern_decl = override_decl,
-                },
-            };
-        }
-
-        const type_name = @typeName(T);
-        const base_name = blk: {
-            if (!std.mem.endsWith(u8, type_name, ")")) {
-                if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |last_separator| {
-                    break :blk type_name[(last_separator + 1).. :0];
-                }
-            }
-            break :blk type_name;
-        };
-
-
-        if (@hasDecl(entities, base_name)) {
-            if (@field(entities, base_name) != T) {
-                return .{
-                    .user_defined = UserDefined.init(T),
-                };
-            }
-
-            const ecs_base_name: [:0]const u8 = "Ecs" ++ base_name;
-            const extern_decl = if (@hasDecl(c, ecs_base_name))
-                @field(ExternDecl, ecs_base_name)
-            else
-                @field(ExternDecl, "FLECS__E" ++ ecs_base_name);
-
-            return .{
-                .builtin = .{
-                    .extern_decl = extern_decl,
-                },
-            };
-        }
-
-        if (@hasDecl(c, base_name) and @TypeOf(@field(c, base_name)) == type) {
-            if (@field(c, base_name) != T) {
-                return .{
-                    .user_defined = UserDefined.init(T),
-                };
-            }
-
-            const extern_decl = @field(ExternDecl, "FLECS__E" ++ base_name);
-
-            const permitted_registrations = if (@hasDecl(PermittedRegistrations, base_name))
-                @field(PermittedRegistrations, base_name)
-            else
-                PermittedRegistrations.none;
-
-            return .{
-                .builtin = .{
-                    .extern_decl = extern_decl,
-                    .type_name = base_name,
-                    .permitted_registrations = permitted_registrations,
-                },
-            };
-        }
-
-        return .{
-            .user_defined = UserDefined.init(T),
-        };
-    }
-}
-
-fn validateGlobalEntityType(comptime T: type) void {
-    comptime switch (@typeInfo(T)) {
-        .Struct, .Union, .Enum => {},
-
-        .Type, .Void, .NoReturn, .Array, .ComptimeFloat, .ComptimeInt,
-        .Undefined, .Null, .Optional, .ErrorUnion, .ErrorSet,
-        .Fn, .Opaque, .Frame, .AnyFrame, .Vector, .EnumLiteral => @compileError(
-            "Cannot use " ++ @typeName(T) ++ " as a component",
-        ),
-
-        .Bool => @compileError(
-            "Cannot use bool as a component: try flecs.bool",
-        ),
-
-        .Int, .Float => switch (T) {
-            u8 => @compileError(
-                "Cannot use u8 as a component: try flecs.char, flecs.byte, or flecs.u8",
-            ),
-            usize => @compileError(
-                "Cannot use usize as a component: try flecs.uptr",
-            ),
-            isize => @compileError(
-                "Cannot use isize as a component: try flecs.iptr",
-            ),
-            u16, u32, u64, i8, i16, i32, i64, f32, f64 => @compileError(
-                "Cannot use " ++ @typeName(T) ++ " as a component: try flecs." ++ @typeName(T),
-            ),
-            else => @compileError(
-                "Cannot use " ++ @typeName(T) ++ " as a component",
-            ),
-        },
-
-        .Pointer => |ptr| {
-            const Child = ptr.child;
-            const child_info = @typeInfo(Child);
-            if (
-                (ptr.size != .One and Child == u8) or
-                (ptr.size == .One and child_info == .Array and child_info.Array.child == u8)
-            ) @compileError(
-                "Cannot use " ++ @typeName(T) ++ " as a component: try flecs.string",
-            );
-            if (ptr.child == anyopaque) {
-                @compileError("Cannot use " ++ @typeName(T) ++ " as a component");
-            }
-            if (@typeInfo(ptr.child) != .Opaque) {
-                validateGlobalEntityType(ptr.child);
-            }
-        },
-    };
-}
-
-// /// Container that associates a builtin Flecs type with an entity ID.
-// fn BuiltinId(comptime T: type) ?type {
-//     @setEvalBranchQuota(@typeInfo(c).Struct.decls.len * 2);
-//
-//     comptime var mutable_builtin = false;
-//     comptime var type_name_: ?[:0]const u8 = null;
-//     comptime var decl: ?std.meta.DeclEnum(c) = switch (T) {
-//         c.EcsComponent => .FLECS__EEcsComponent,
-//         c.EcsIdentifier => .FLECS__EEcsIdentifier,
-//         c.EcsIterable => .FLECS__EEcsIterable,
-//         c.EcsPoly => .FLECS__EEcsPoly,
-//
-//         Id => .FLECS__Eecs_entity_t,
-//
-//         flecs.IsA => .EcsIsA,
-//
-//         else => null,
-//     };
-//
-//     if (decl == null and enabled_addons.rest) {
-//         decl = switch (T) {
-//             c.EcsRest => .FLECS__EEcsRest,
-//             else => null,
-//         };
-//     }
-//
-//     if (decl == null and enabled_addons.timer) {
-//         decl = switch (T) {
-//             c.EcsTimer => .FLECS__EEcsTimer,
-//             c.EcsRateFilter => .FLECS__EEcsRateFilter,
-//             else => null,
-//         };
-//     }
-//
-//     if (decl == null and enabled_addons.system) {
-//         decl = switch (T) {
-//             c.EcsTickSource => .FLECS__EEcsTickSource,
-//             else => null,
-//         };
-//     }
-//
-//     if (decl == null and enabled_addons.monitor) {
-//         switch (T) {
-//             c.EcsWorldStats => {
-//                 mutable_builtin = true;
-//                 type_name_ = "EcsWorldStats";
-//                 decl = .FLECS__EEcsWorldStats;
-//             },
-//             c.EcsPipelineStats => {
-//                 mutable_builtin = true;
-//                 type_name_ = "EcsPipelineStats";
-//                 decl = .FLECS__EEcsPipelineStats;
-//             },
-//             else => {},
-//         }
-//     }
-//
-//     if (decl == null and enabled_addons.doc) {
-//         decl = switch (T) {
-//             c.EcsDocDescription => .FLECS__EEcsDocDescription,
-//             else => null,
-//         };
-//     }
-//
-//     if (decl == null and enabled_addons.meta) {
-//         decl = switch (T) {
-//             c.EcsMetaType => .FLECS__EEcsMetaType,
-//             c.EcsMetaTypeSerialized => .FLECS__EEcsMetaTypeSerialized,
-//             c.EcsPrimitive => .FLECS__EEcsPrimitive,
-//             c.EcsEnum => .FLECS__EEcsEnum,
-//             c.EcsBitmask => .FLECS__EEcsBitmask,
-//             c.EcsMember => .FLECS__EEcsMember,
-//             c.EcsStruct => .FLECS__EEcsStruct,
-//             c.EcsArray => .FLECS__EEcsArray,
-//             c.EcsVector => .FLECS__EEcsVector,
-//             c.EcsOpaque => .FLECS__EEcsOpaque,
-//             c.EcsUnit => .FLECS__EEcsUnit,
-//             c.EcsUnitPrefix => .FLECS__EEcsUnitPrefix,
-//             else => null,
-//         };
-//     }
-//
-//     if (decl == null) return null;
-//     return struct {
-//         pub inline fn get() c.ecs_entity_t {
-//             return @field(c, @tagName(decl.?));
-//         }
-//
-//         pub usingnamespace if (mutable_builtin) struct {
-//             pub inline fn set(new_value: c.ecs_entity_t) void {
-//                 @field(c, @tagName(decl.?)) = new_value;
-//
-//                 if (builtin.is_test) {
-//                     id_tracker.add(&@field(c, @tagName(decl.?)));
-//                 }
-//             }
-//
-//             pub const type_name = type_name_.?;
-//         } else struct {};
-//     };
-// }
-
-pub const id_tracker = struct {
-    /// Incremented when tests call `flecs.testing.reset()`.
-    var reset_count: u64 = 0;
-
-    /// Called by `flecs.testing.reset()` to increment the `reset_count` variable
-    /// and reset certain builtin entities that have dynamically assigned IDs.
-    pub fn reset() void {
-        reset_count += 1;
-
-        if (enabled_addons.monitor) {
-            c.EcsPeriod1s = 0;
-            c.EcsPeriod1m = 0;
-            c.EcsPeriod1h = 0;
-            c.EcsPeriod1d = 0;
-            c.EcsPeriod1w = 0;
-
-            c.FLECS__EFlecsMonitor = 0;
-
-            c.FLECS__EEcsWorldStats = 0;
-            c.FLECS__EEcsPipelineStats = 0;
-        }
     }
 };

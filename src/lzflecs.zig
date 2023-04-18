@@ -5,6 +5,7 @@ pub const c = @import("c.zig");
 pub const Id = @import("entity.zig").Id;
 pub const Entity = @import("entity.zig").Entity;
 pub const EntityView = @import("entity.zig").EntityView;
+pub const EntityTypeMeta = @import("entity.zig").EntityTypeMeta;
 pub const World = @import("world.zig").World;
 pub const testing = @import("testing.zig");
 

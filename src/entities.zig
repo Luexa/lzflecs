@@ -112,6 +112,21 @@ pub const WorldStats = @import("c.zig").EcsWorldStats;
 pub const PipelineStats = @import("c.zig").EcsPipelineStats;
 
 
+// ----------------------
+// `FLECS_METRICS` addon.
+// ----------------------
+
+pub const Metric = struct {};
+pub const Counter = struct {};
+pub const CounterIncrement = struct {};
+pub const Gauge = struct {};
+pub const MetricInstance = struct {};
+
+pub const FlecsMetrics = struct {};
+
+pub const MetricValue = @import("c.zig").EcsMetricValue;
+pub const MetricSource = @import("c.zig").EcsMetricSource;
+
 // ------------------
 // `FLECS_DOC` addon.
 // ------------------

@@ -16,7 +16,7 @@ const comptimePrint = std.fmt.comptimePrint;
 const fmtId = std.zig.fmtId;
 const fmtEscapes = std.zig.fmtEscapes;
 
-pub const flecs_version = SemanticVersion.parse("3.2.0") catch unreachable;
+pub const flecs_version = SemanticVersion.parse("3.2.1") catch unreachable;
 
 pub fn build(builder: *Build) void {
     const invoked_by_zls = if (builder.user_input_options.contains("invoked-by-zls"))
@@ -76,6 +76,7 @@ pub const PackageOptions = struct {
     /// Types used for certain measurements and stored values.
     types: FlecsTypes = .{},
 
+    /// Configurable constants to build Flecs with.
     constants: FlecsConstants = .{},
 
     /// Control which optimization modes will contain nontrivial asserts (asserts
@@ -221,12 +222,9 @@ pub const PackageOptions = struct {
             const writer = buf.writer();
 
             inline for (comptime FlecsConstants.fields()) |field| {
-                const field_name = @tagName(field);
-                const macro_name = comptime FlecsConstants.macroName(field);
-
-                writer.print("pub const {} = {d};\n", .{
-                    fmtId(macro_name),
-                    @field(options.constants, field_name),
+                writer.print("pub const {} = {};\n", .{
+                    fmtId(@tagName(field)),
+                    options.constants.value(field),
                 }) catch @panic("OOM");
             }
 
@@ -309,6 +307,9 @@ pub const FlecsAddons = struct {
     /// Periodically collect and store statistics.
     monitor: bool = true,
 
+    /// Expose component data as statistics.
+    metrics: bool = true,
+
     /// Extended tracing and error logging.
     log: bool = true,
 
@@ -322,38 +323,39 @@ pub const FlecsAddons = struct {
     os_api_impl: bool = true,
 
     fn fields() *const [fieldNames(FlecsAddons).len]FieldEnum(FlecsAddons) {
-        comptime {
+        const buf = comptime blk: {
             const field_names = fieldNames(FlecsAddons);
             var buf: [field_names.len]FieldEnum(FlecsAddons) = undefined;
             for (field_names, &buf) |field_name, *buf_entry| {
                 buf_entry.* = @field(FieldEnum(FlecsAddons), field_name);
             }
-            return &buf;
-        }
+            break :blk &buf;
+        };
+        return buf;
     }
 
     fn macroName(comptime field: FieldEnum(FlecsAddons)) [:0]const u8 {
-        comptime {
+        const buf = comptime blk: {
             const field_name = @tagName(field);
             var buf = [_:0]u8{ undefined } ** field_name.len;
             _ = std.ascii.upperString(&buf, field_name);
-            return "FLECS_" ++ &buf;
-        }
+            break :blk "FLECS_" ++ &buf;
+        };
+        return buf;
     }
 
     fn blacklistMacroName(comptime field: FieldEnum(FlecsAddons)) [:0]const u8 {
-        comptime {
-            return "FLECS_NO_" ++ macroName(field)["FLECS_".len..];
-        }
+        return comptime ("FLECS_NO_" ++ macroName(field)["FLECS_".len..]);
     }
 
     fn optionName(comptime field: FieldEnum(FlecsAddons)) [:0]const u8 {
-        comptime {
+        const buf = comptime blk: {
             const field_name = @tagName(field);
             var buf = field_name[0..field_name.len :0].*;
             std.mem.replaceScalar(u8, &buf, '_', '-');
-            return &buf ++ "-addon";
-        }
+            break :blk &buf ++ "-addon";
+        };
+        return buf;
     }
 
     fn fromBuildOptions(builder: *Build) FlecsAddons {
@@ -390,6 +392,7 @@ pub const FlecsAddons = struct {
             .snapshot => &.{},
             .stats => &.{},
             .monitor => &.{ .stats, .system, .timer },
+            .metrics => &.{ .meta, .units, .pipeline },
             .log => &.{},
             .journal => &.{ .log },
             .app => &.{ .pipeline },
@@ -422,14 +425,15 @@ pub const FlecsTypes = struct {
     ecs_ftime_t: Float = .f32,
 
     fn fields() *const [fieldNames(FlecsTypes).len]FieldEnum(FlecsTypes) {
-        comptime {
+        const buf = comptime blk: {
             const field_names = fieldNames(FlecsTypes);
             var buf: [field_names.len]FieldEnum(FlecsTypes) = undefined;
             for (field_names, &buf) |field_name, *buf_entry| {
                 buf_entry.* = @field(FieldEnum(FlecsTypes), field_name);
             }
-            return &buf;
-        }
+            break :blk &buf;
+        };
+        return buf;
     }
 
     fn fromBuildOptions(builder: *Build) FlecsTypes {
@@ -469,38 +473,92 @@ pub const FlecsTypes = struct {
 
 /// Configure the values of certain macro definitions.
 pub const FlecsConstants = struct {
+    /// Whether the "low footprint" preset is enabled or not.
+    ///
+    /// When true, the defaults for each numeric constant are lowered
+    /// significantly. This decreases memory footprint at the cost of
+    /// decreased performance.
+    ///
+    /// The defaults for each constant with and without the option are
+    /// specified in the respective constant's documentation comment.
+    low_footprint: bool = false,
+
     /// Number of reserved entity IDs for components.
     ///
-    /// Regular entity ids will start
-    /// after this constant. This affects performance of table traversal, as
-    /// edges with ids  lower than this constant are looked up in an array, whereas constants higher
-    /// than this id are looked up in a map. Increasing this value can improve
-    /// performance at the cost of (significantly) higher memory usage.
-    hi_component_id: u16 = 256,
+    /// This constant can be used to balance between performance and memory
+    /// utilization. The constant is used in two ways:
+    ///
+    ///  - Entity IDs `0..hi_component_id` are reserved for component IDs.
+    ///  - Used as lookup array size in table edges.
+    ///
+    /// Increasing this value increases the size of the lookup, which allows
+    /// fast table traversal. This improves the perofmrance of ECS add/remove
+    /// operations at the cost of (significantly) higher memory usage.
+    ///
+    /// Component IDs that fall outside of this range use a regular map lookup,
+    /// which is slower but more memory efficient.
+    ///
+    /// Default: 256
+    /// Low Footprint: 16
+    hi_component_id: ?u16 = null,
 
-    /// Number of reserved ID records for use in Flecs internals.
-    hi_id_record_id: u16 = 1024,
+    /// Number of elements in the ID record lookup array.
+    ///
+    /// This constant can be used to balance between performance and memory
+    /// utilization. The value is used to determine the size of the ID record
+    /// lookup array.
+    ///
+    /// ID values that fall outside of this range use a regular map lookup,
+    /// which is slower but more memory efficient.
+    ///
+    /// Default: 1024
+    /// Low Footprint: 16
+    hi_id_record_id: ?u16 = null,
+
+    /// Number of bits in an ID that are used to determine the page index when
+    /// used with a sparse set.
+    ///
+    /// The number of bits determines the page size, which is `(1 << bits)`.
+    ///
+    /// Lower values decrease memory utilization at the cost of requiring more
+    /// individual allocations.
+    ///
+    /// Default: 12
+    /// Low Footprint: 6
+    sparse_page_bits: ?u16 = null,
+
+    /// Whether to use the OS allocator specified in the OS API directly, as
+    /// opposed to using the builtin block allocator.
+    ///
+    /// This can decrease memory utilization as memory will be freed more
+    /// often, at the cost of decreased performance. However, using this
+    /// option may be required to work around alignment issues with the block
+    /// allocator. See <https://github.com/SanderMertens/flecs/issues/478>.
+    ///
+    /// Default: false
+    /// Low Footprint: true
+    use_os_alloc: ?bool = null,
 
     fn fields() *const [fieldNames(FlecsConstants).len]FieldEnum(FlecsConstants) {
-        comptime {
+        const buf = comptime blk: {
             const field_names = fieldNames(FlecsConstants);
             var buf: [field_names.len]FieldEnum(FlecsConstants) = undefined;
             for (field_names, &buf) |field_name, *buf_entry| {
                 buf_entry.* = @field(FieldEnum(FlecsConstants), field_name);
             }
-            return &buf;
-        }
+            break :blk &buf;
+        };
+        return buf;
     }
 
     fn fromBuildOptions(builder: *Build) FlecsConstants {
         var constants = FlecsConstants{};
         inline for (comptime fields()) |field| {
-            const field_name = @tagName(field);
-            const FieldType = @TypeOf(@field(constants, field_name));
+            const FieldType = @TypeOf(constants.value(field));
             const option_name = comptime optionName(field);
             const option_description = comptime optionDescription(field);
             if (builder.option(FieldType, option_name, option_description)) |option_value| {
-                @field(constants, field_name) = option_value;
+                @field(constants, @tagName(field)) = option_value;
             }
         }
         return constants;
@@ -508,27 +566,51 @@ pub const FlecsConstants = struct {
 
     fn optionDescription(comptime field: FieldEnum(FlecsConstants)) [:0]const u8 {
         return switch (field) {
+            .low_footprint => "Decrease memory utilization at the cost of performance",
             .hi_component_id => "Number of reserved component IDs",
-            .hi_id_record_id => "Number of reserved ID records",
+            .hi_id_record_id => "Number of reserved ID record IDs",
+            .sparse_page_bits => "Number of bits used to determine sparse page size",
+            .use_os_alloc => "Whether to use OS allocator directly or not",
         };
     }
 
     fn macroName(comptime field: FieldEnum(FlecsConstants)) [:0]const u8 {
-        comptime {
+        const buf = comptime blk: {
             const field_name = @tagName(field);
             var buf = [_:0]u8{ undefined } ** field_name.len;
             _ = std.ascii.upperString(&buf, field_name);
-            return "ECS_" ++ &buf;
-        }
+            break :blk "FLECS_" ++ &buf;
+        };
+        return buf;
     }
 
     fn optionName(comptime field: FieldEnum(FlecsConstants)) [:0]const u8 {
-        comptime {
+        const buf = comptime blk: {
             const field_name = @tagName(field);
             var buf = field_name[0..field_name.len :0].*;
             std.mem.replaceScalar(u8, &buf, '_', '-');
-            return &buf;
-        }
+            break :blk &buf;
+        };
+        return buf;
+    }
+
+    pub fn value(
+        constants: FlecsConstants,
+        comptime field: FieldEnum(FlecsConstants),
+    ) switch (field) {
+        .low_footprint, .use_os_alloc => bool,
+        .hi_component_id, .hi_id_record_id, .sparse_page_bits => u16,
+    } {
+        return switch (field) {
+            .low_footprint => constants.low_footprint,
+            else => @field(constants, @tagName(field)) orelse switch (field) {
+                .low_footprint => comptime unreachable,
+                .hi_component_id => if (constants.low_footprint) 16 else 256,
+                .hi_id_record_id => if (constants.low_footprint) 16 else 1024,
+                .sparse_page_bits => if (constants.low_footprint) 6 else 12,
+                .use_os_alloc => constants.low_footprint,
+            },
+        };
     }
 };
 
@@ -593,12 +675,11 @@ pub const Package = struct {
             static_library.defineCMacro(macro_name, macro_value);
         }
 
-        inline for (comptime FlecsConstants.fields()) |field| {
+        inline for (comptime FlecsConstants.fields()[1..]) |field| {
             var buf: [5]u8 = undefined;
-            const field_name = @tagName(field);
             const macro_name = comptime FlecsConstants.macroName(field);
-            const macro_value = std.fmt.bufPrint(&buf, "{d}", .{
-                @field(options.constants, field_name),
+            const macro_value = std.fmt.bufPrint(&buf, "{}", .{
+                options.constants.value(field),
             }) catch unreachable;
 
             static_library.defineCMacro(macro_name, macro_value);
@@ -627,8 +708,8 @@ pub const Package = struct {
             .root_source_file = package.module.source_file,
             .target = package.static_library.target,
             .optimize = package.static_library.optimize,
+            .filter = test_filter,
         });
-        test_compile_step.setFilter(test_filter);
         test_compile_step.linkLibrary(package.static_library);
 
         const dependencies = &package.module.dependencies;
@@ -636,7 +717,7 @@ pub const Package = struct {
             test_compile_step.addModule(dependency_name, dependency_module);
         }
 
-        return test_compile_step.run();
+        return builder.addRunArtifact(test_compile_step);
     }
 };
 

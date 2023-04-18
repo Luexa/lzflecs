@@ -137,6 +137,7 @@ pub const EcsQueryIsSubquery = 1 << 2;
 pub const EcsQueryIsOrphaned = 1 << 3;
 pub const EcsQueryHasOutColumns = 1 << 4;
 pub const EcsQueryHasMonitor = 1 << 5;
+pub const EcsQueryTrivialIter = 1 << 6;
 
 pub const EcsAperiodicEmptyTables = 1 << 1;
 pub const EcsAperiodicComponentMonitors = 1 << 2;
@@ -171,8 +172,11 @@ pub const EcsTermReflexive = 1 << 5;
 pub const EcsTermIdInherited = 1 << 6;
 
 pub const EcsIterNextYield = 0;
-pub const EcsIterCurYield = -1;
+pub const EcsIterYield = -1;
 pub const EcsIterNext = 1;
+
+pub const EcsFirstUserComponentId = 8;
+pub const EcsFirstUserEntityId = FLECS_HI_COMPONENT_ID + 128;
 
 pub const ECS_ID_FLAGS_MASK: u64 = 0x0F << 60;
 pub const ECS_ENTITY_MASK: u64 = 0xFFFFFFFF;
@@ -184,8 +188,13 @@ pub const ECS_ROW_FLAGS_MASK: u32 = ~ECS_ROW_MASK;
 
 pub const ECS_MAX_COMPONENT_ID: u32 = ~@intCast(u32, ECS_ID_FLAGS_MASK >> 32);
 
-pub const ECS_HI_COMPONENT_ID = @import("package_options").constants.ECS_HI_COMPONENT_ID;
-pub const ECS_HI_ID_RECORD_ID = @import("package_options").constants.ECS_HI_ID_RECORD_ID;
+pub const FLECS_LOW_FOOTPRINT = @import("package_options").constants.low_footprint;
+pub const FLECS_HI_COMPONENT_ID = @import("package_options").constants.hi_component_id;
+pub const FLECS_HI_ID_RECORD_ID = @import("package_options").constants.hi_id_record_id;
+pub const FLECS_SPARSE_PAGE_BITS = @import("package_options").constants.sparse_page_bits;
+pub const FLECS_USE_OS_ALLOC = @import("package_options").constants.use_os_alloc;
+
+pub const FLECS_SPARSE_PAGE_SIZE = 1 << FLECS_SPARSE_PAGE_BITS;
 
 pub const ECS_INVALID_OPERATION = 1;
 pub const ECS_INVALID_PARAMETER = 2;
@@ -223,6 +232,7 @@ pub const ECS_COLUMN_TYPE_MISMATCH = 45;
 pub const ECS_INVALID_WHILE_READONLY = 70;
 pub const ECS_LOCKED_STORAGE = 71;
 pub const ECS_INVALID_FROM_WORKER = 72;
+
 
 pub const ecs_flags8_t = u8;
 pub const ecs_flags16_t = u16;
@@ -425,11 +435,12 @@ pub const ecs_filter_t = extern struct {
     flags: ecs_flags32_t,
 
     variable_names: [1]?[*:0]u8,
+    sizes: ?[*]i32,
 
     entity: ecs_entity_t,
-    world: ?*ecs_world_t,
     iterable: ecs_iterable_t,
     dtor: ?ecs_poly_dtor_t,
+    world: ?*ecs_world_t,
 };
 
 pub const ecs_observer_t = extern struct {
@@ -1258,6 +1269,13 @@ pub extern fn ecs_vec_set_count(
 ) void;
 
 pub extern fn ecs_vec_set_min_count(
+    allocator: ?*ecs_allocator_t,
+    vec: *ecs_vec_t,
+    size: i32,
+    elem_count: i32,
+) void;
+
+pub extern fn ecs_vec_set_min_count_zeromem(
     allocator: ?*ecs_allocator_t,
     vec: *ecs_vec_t,
     size: i32,
@@ -2431,6 +2449,7 @@ pub extern fn ecs_query_next_table(
 
 pub extern fn ecs_query_populate(
     iter: *ecs_iter_t,
+    when_changed: bool,
 ) c_int;
 
 pub extern fn ecs_query_changed(
@@ -2612,6 +2631,11 @@ pub extern fn ecs_field_id(
     index: i32,
 ) ecs_id_t;
 
+pub extern fn ecs_field_column_index(
+    it: *const ecs_iter_t,
+    index: i32,
+) i32;
+
 pub extern fn ecs_field_src(
     it: *const ecs_iter_t,
     index: i32,
@@ -2641,11 +2665,22 @@ pub extern fn ecs_table_get_column(
     offset: i32,
 ) ?*anyopaque;
 
+pub extern fn ecs_table_get_column_size(
+    table: *const ecs_table_t,
+    index: i32,
+) usize;
+
 pub extern fn ecs_table_get_index(
     world: *const ecs_world_t,
     table: *const ecs_table_t,
     id: ecs_id_t,
 ) i32;
+
+pub extern fn ecs_table_has_id(
+    world: *const ecs_world_t,
+    table: *const ecs_table_t,
+    id: ecs_id_t,
+) bool;
 
 pub extern fn ecs_table_get_id(
     world: *const ecs_world_t,
@@ -3670,6 +3705,46 @@ pub extern var FLECS__EEcsPipelineStats: ecs_entity_t;
 
 
 // ----------------------
+// `FLECS_METRICS` addon.
+// ----------------------
+
+pub const EcsMetricValue = struct {
+    value: f64,
+};
+
+pub const EcsMetricSource = struct {
+    entity: ecs_entity_t,
+};
+
+pub const ecs_metric_desc_t = struct {
+    entity: ecs_entity_t,
+    member: ecs_entity_t,
+    id: ecs_id_t,
+    targets: bool,
+    kind: ecs_entity_t,
+    brief: ?[*:0]const u8,
+};
+
+pub extern fn ecs_metric_init(
+    world: *ecs_world_t,
+    desc: *const ecs_metric_desc_t,
+) ecs_entity_t;
+
+pub extern fn FlecsMetricsImport(
+    world: *ecs_world_t,
+) void;
+
+pub extern var EcsMetric: ecs_entity_t;
+pub extern var EcsCounter: ecs_entity_t;
+pub extern var EcsCounterIncrement: ecs_entity_t;
+pub extern var EcsGauge: ecs_entity_t;
+
+pub extern var FLECS__EFlecsMetrics: ecs_entity_t;
+pub extern var FLECS__EEcsMetricInstance: ecs_entity_t;
+pub extern var FLECS__EEcsMetricValue: ecs_entity_t;
+pub extern var FLECS__EEcsMetricSource: ecs_entity_t;
+
+// ----------------------
 // `FLECS_COREDOC` addon.
 // ----------------------
 
@@ -4498,6 +4573,11 @@ pub extern fn ecs_meta_get_string(
 pub extern fn ecs_meta_get_entity(
     cursor: *const ecs_meta_cursor_t,
 ) ecs_entity_t;
+
+pub extern fn ecs_meta_ptr_to_float(
+    type_kind: ecs_primitive_kind_t,
+    ptr: *const anyopaque,
+) f64;
 
 pub extern fn ecs_primitive_init(
     world: *ecs_world_t,

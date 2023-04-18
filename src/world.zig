@@ -156,14 +156,15 @@ pub const World = opaque {
         const c_world = @ptrCast(*c.ecs_world_t, world);
         const id_handle = @import("entity.zig").IdStorage(GlobalEntity);
 
-        switch (id_handle.permitted_registrations) {
+        switch (id_handle.intended_use) {
             .any, .global_entity => {},
             .component => return world.componentImpl(GlobalEntity, true),
             .none => return,
         }
 
         const entity_desc = std.mem.zeroInit(c.ecs_entity_desc_t, .{
-            .name = if (id_handle.type_name) |type_name| type_name.ptr else null,
+            .name = if (id_handle.name) |name| name.ptr else null,
+            .symbol = if (id_handle.symbol) |symbol| symbol.ptr else null,
             .id = id_handle.get(),
         });
 
@@ -175,14 +176,15 @@ pub const World = opaque {
         const c_world = @ptrCast(*c.ecs_world_t, world);
         const id_handle = @import("entity.zig").IdStorage(Component);
 
-        switch (id_handle.permitted_registrations) {
+        switch (id_handle.intended_use) {
             .any, .component => {},
             .global_entity => return world.globalEntity(Component),
             .none => return,
         }
 
         const entity_desc = std.mem.zeroInit(c.ecs_entity_desc_t, .{
-            .name = if (id_handle.type_name) |type_name| type_name.ptr else null,
+            .name = if (id_handle.name) |name| name.ptr else null,
+            .symbol = if (id_handle.symbol) |symbol| symbol.ptr else null,
             .id = id_handle.get(),
             .use_low_id = use_low_id,
         });
@@ -210,6 +212,316 @@ pub const World = opaque {
     /// method like `component` or `globalEntity` ahead of time.
     pub inline fn entityView(world: *const World, id_or_type: anytype) EntityView {
         return EntityView.init(world, id_or_type);
+    }
+
+    /// Look up an entity by name.
+    ///
+    /// Returns an `Entity` that matches the specified name.
+    ///
+    /// Only looks for entities in the provided parent. If no parent is provided,
+    /// look in the current scope (root if no scope is provided).
+    pub inline fn lookup(
+        world: *World,
+        parent: anytype,
+        name: [*:0]const u8,
+    ) Entity {
+        return world.entity(world.lookupId(parent, name));
+    }
+
+    /// Look up an entity by name.
+    ///
+    /// Returns an `EntityView` that matches the specified name.
+    ///
+    /// Only looks for entities in the provided parent. If no parent is provided,
+    /// look in the current scope (root if no scope is provided).
+    pub inline fn lookupView(
+        world: *const World,
+        parent: anytype,
+        name: [*:0]const u8,
+    ) EntityView {
+        return world.entityView(world.lookupId(parent, name));
+    }
+
+    /// Look up an entity by name.
+    ///
+    /// Returns an entity ID that matches the specified name.
+    ///
+    /// Only looks for entities in the provided parent. If no parent is provided,
+    /// look in the current scope (root if no scope is provided).
+    pub inline fn lookupId(world: *const World, parent: anytype, name: [*:0]const u8) Id {
+        const ParentType = @TypeOf(parent);
+        const parent_id = switch (ParentType) {
+            Entity, EntityView => parent.id,
+            type => Id.of(parent),
+            Id => parent,
+
+            ?Id => parent orelse Id.null_id,
+            ?Entity, ?EntityView => if (parent) |e| e.id else Id.null_id,
+            @TypeOf(null) => Id.null_id,
+
+            else => @compileError("Cannot derive entity ID from " ++ @typeName(ParentType)),
+        };
+        return @intToEnum(Id, c.ecs_lookup_child(
+            @ptrCast(*const c.ecs_world_t, world),
+            @enumToInt(parent_id),
+            name,
+        ));
+    }
+
+    /// Advanced options for `lookupPath()` and related functions.
+    pub const LookupPathOptions = struct {
+        sep: ?[*:0]const u8 = null,
+        prefix: ?[*:0]const u8 = null,
+        recursive: bool = true,
+    };
+
+    /// Look up an entity from a path.
+    ///
+    /// Returns an `Entity` that matches the provided path, relative to the
+    /// provided parent. The operation will use the provided separator to tokenize
+    /// the path expression. If the provided path contains the prefix, the search
+    /// will start from the root.
+    ///
+    /// If the entity is not found in the provided parent, the operation will
+    /// continue to search in the parent of the parent, until the root is reached.
+    /// If the entity is still not found, the lookup will search in the `flecs.core`
+    /// scope. If the entity is not found there either, the function returns the
+    /// null ID.
+    pub inline fn lookupPath(
+        world: *World,
+        parent: anytype,
+        path: [*:0]const u8,
+        options: LookupPathOptions,
+    ) Entity {
+        return world.entity(world.lookupPathId(parent, path, options));
+    }
+
+    /// Look up an entity from a path.
+    ///
+    /// Returns an `EntityView` that matches the provided path, relative to the
+    /// provided parent. The operation will use the provided separator to tokenize
+    /// the path expression. If the provided path contains the prefix, the search
+    /// will start from the root.
+    ///
+    /// If the entity is not found in the provided parent, the operation will
+    /// continue to search in the parent of the parent, until the root is reached.
+    /// If the entity is still not found, the lookup will search in the `flecs.core`
+    /// scope. If the entity is not found there either, the function returns the
+    /// null ID.
+    pub inline fn lookupPathView(
+        world: *const World,
+        parent: anytype,
+        path: [*:0]const u8,
+        options: LookupPathOptions,
+    ) EntityView {
+        return world.entityView(world.lookupPathId(parent, path, options));
+    }
+
+    /// Look up an entity from a path.
+    ///
+    /// Returns an entity ID that matches the provided path, relative to the
+    /// provided parent. The operation will use the provided separator to tokenize
+    /// the path expression. If the provided path contains the prefix, the search
+    /// will start from the root.
+    ///
+    /// If the entity is not found in the provided parent, the operation will
+    /// continue to search in the parent of the parent, until the root is reached.
+    /// If the entity is still not found, the lookup will search in the `flecs.core`
+    /// scope. If the entity is not found there either, the function returns the
+    /// null ID.
+    pub inline fn lookupPathId(
+        world: *const World,
+        parent: anytype,
+        path: [*:0]const u8,
+        options: LookupPathOptions,
+    ) Id {
+        const ParentType = @TypeOf(parent);
+        const parent_id = switch (ParentType) {
+            Id => parent,
+            Entity, EntityView => parent.id,
+            type => Id.of(parent),
+
+            ?Id => parent orelse Id.null_id,
+            ?Entity, ?EntityView => if (parent) |e| e.id else Id.null_id,
+            @TypeOf(null) => Id.null_id,
+
+            else => @compileError("Cannot derive entity ID from " ++ @typeName(ParentType)),
+        };
+        return @intToEnum(Id, c.ecs_lookup_path_w_sep(
+            @ptrCast(*const c.ecs_world_t, world),
+            @enumToInt(parent_id),
+            path,
+            options.sep,
+            options.prefix,
+            options.recursive,
+        ));
+    }
+
+    /// Look up an entity by its full path.
+    ///
+    /// Returns an `Entity` that matches the provided path, relative to the root.
+    pub inline fn lookupFullPath(
+        world: *World,
+        path: [*:0]const u8,
+    ) Entity {
+        return world.lookupPath(null, path, .{});
+    }
+
+    /// Look up an entity by its full path.
+    ///
+    /// Returns an `EntityView` that matches the provided path, relative to the root.
+    pub inline fn lookupFullPathView(
+        world: *const World,
+        path: [*:0]const u8,
+    ) EntityView {
+        return world.lookupPathView(null, path, .{});
+    }
+
+    /// Look up an entity by its full path.
+    ///
+    /// Returns an entity ID that matches the provided path, relative to the root.
+    pub inline fn lookupFullPathId(
+        world: *const World,
+        path: [*:0]const u8,
+    ) Id {
+        return world.lookupPathId(null, path, .{});
+    }
+
+    /// Look up an entity by its symbol name.
+    ///
+    /// Returns an `Entity`.
+    ///
+    /// This looks up an entity by symbol stored in `(flecs.Identifier, flecs.Symbol)`.
+    /// The operation does not take into account hierarchies.
+    ///
+    /// This operation can be useful to resolve, for example, a type by its Zig
+    /// identifier, which does not include the Flecs namespacing.
+    pub inline fn lookupSymbol(
+        world: *World,
+        symbol: [*:0]const u8,
+        lookup_as_path: bool,
+    ) Entity {
+        return world.entity(world.lookupSymbolId(symbol, lookup_as_path));
+    }
+
+    /// Look up an entity by its symbol name.
+    ///
+    /// Returns an `EntityView`.
+    ///
+    /// This looks up an entity by symbol stored in `(flecs.Identifier, flecs.Symbol)`.
+    /// The operation does not take into account hierarchies.
+    ///
+    /// This operation can be useful to resolve, for example, a type by its Zig
+    /// identifier, which does not include the Flecs namespacing.
+    pub inline fn lookupSymbolView(
+        world: *const World,
+        symbol: [*:0]const u8,
+        lookup_as_path: bool,
+    ) EntityView {
+        return world.entityView(world.lookupSymbolId(symbol, lookup_as_path));
+    }
+
+    /// Look up an entity by its symbol name.
+    ///
+    /// Returns an entity ID.
+    ///
+    /// This looks up an entity by symbol stored in `(flecs.Identifier, flecs.Symbol)`.
+    /// The operation does not take into account hierarchies.
+    ///
+    /// This operation can be useful to resolve, for example, a type by its Zig
+    /// identifier, which does not include the Flecs namespacing.
+    pub inline fn lookupSymbolId(
+        world: *const World,
+        symbol: [*:0]const u8,
+        lookup_as_path: bool,
+    ) Id {
+        return @intToEnum(Id, c.ecs_lookup_symbol(
+            @ptrCast(*const c.ecs_world_t, world),
+            symbol,
+            lookup_as_path,
+        ));
+    }
+
+    /// Set the current scope.
+    ///
+    /// This operation sets the scope of the current stage to the provided entity.
+    /// As a result new entities will be created in this scope, and lookups will
+    /// be relative to the provided scope.
+    ///
+    /// It is considered good practice to restore the scope to the old value.
+    /// Example usage:
+    ///
+    /// ```zig
+    /// const old_scope = world.setScope(new_scope);
+    /// defer _ = world.setScope(old_scope);
+    /// ```
+    pub inline fn setScope(world: *World, scope: anytype) Id {
+        const ScopeType = @TypeOf(scope);
+        const scope_id = switch (ScopeType) {
+            Id => scope,
+            Entity, EntityView => scope.id,
+            type => Id.of(scope),
+            else => @compileError("Cannot derive entity ID from " ++ @typeName(ScopeType)),
+        };
+        return @intToEnum(Id, c.ecs_set_scope(
+            @ptrCast(*c.ecs_world_t, world),
+            @enumToInt(scope_id),
+        ));
+    }
+
+    /// Get the current scope.
+    ///
+    /// Returns the scope set by `setScope`, or `Id.null_id` if no scope was set.
+    pub inline fn getScope(world: *const World) Id {
+        return @intToEnum(Id, c.ecs_get_scope(
+            @ptrCast(*const c.ecs_world_t, world),
+        ));
+    }
+
+    /// Set search path for lookup operations.
+    ///
+    /// This operation accepts an array of entity IDs that will be used as search
+    /// scopes by lookup operations. The operation returns the current search path.
+    ///
+    /// The search path will be evaluated starting from the last element.
+    ///
+    /// The default search path includes `flecs.core`. When a custom search path
+    /// is provided it overwrites the existing search path. Operations that rely
+    /// on looking up names from `flecs.core` without providing the namespace may
+    /// fail if the custom search path does not include `flecs.core` (`flecs.FlecsCore`).
+    ///
+    /// The search path array is not copied into managed memory. The application
+    /// must ensure that the provided array is valid for as long as it is used as
+    /// the search path.
+    ///
+    /// The provided array must be terminated with a `null_id` element. This enables
+    /// an application to push/pop elements to an existing array withut invoking the
+    /// `setLookupPath` operation again.
+    ///
+    /// It is good practice to restore the old search path.
+    /// Example usage:
+    ///
+    /// ```zig
+    /// const old_lookup_path = world.setLookupPath(new_lookup_path);
+    /// defer _ = world.setLookupPath(old_lookup_path);
+    /// ```
+    pub inline fn setLookupPath(
+        world: *World,
+        lookup_path: [*:Id.null_id]const Id,
+    ) [*:Id.null_id]Id {
+        return @ptrCast([*:Id.null_id]Id, c.ecs_set_lookup_path(
+            @ptrCast(*c.ecs_world_t, world),
+            @ptrCast([*:0]const c.ecs_entity_t, lookup_path),
+        ));
+    }
+
+    /// Get current lookup path.
+    ///
+    /// Returns the lookup path set by `setLookupPath`.
+    pub inline fn getLookupPath(world: *const World) [*:Id.null_id]Id {
+        return @ptrCast([*:Id.null_id]Id, c.ecs_get_lookup_path(
+            @ptrCast(*const c.ecs_world_t, world),
+        ));
     }
 
     /// Test whether an entity ID is valid.
@@ -275,34 +587,45 @@ test "world component registration" {
     const world_1 = World.init(null);
     defer world_1.deinit();
 
+    const Foo2 = struct { const Foo = struct {}; }.Foo;
     const Foo = struct {};
     const Bar = struct {};
     try std.testing.expect(Id.of(Foo) == Id.null_id);
     try std.testing.expect(Id.of(Bar) == Id.null_id);
+    try std.testing.expect(Id.of(Foo2) == Id.null_id);
 
     world_1.component(Foo);
     world_1.component(Bar);
+    world_1.component(Foo2);
 
     const foo_id = Id.of(Foo);
     const bar_id = Id.of(Bar);
+    const foo2_id = Id.of(Foo2);
     try std.testing.expect(foo_id != Id.null_id);
     try std.testing.expect(bar_id != Id.null_id);
+    try std.testing.expect(foo2_id != Id.null_id);
     try std.testing.expect(foo_id != bar_id);
+    try std.testing.expect(foo_id != foo2_id);
+    try std.testing.expect(bar_id != foo2_id);
 
     const world_2 = World.init(null);
     defer world_2.deinit();
 
     world_2.component(Bar);
+    world_2.component(Foo2);
     world_2.component(Foo);
 
     try std.testing.expect(Id.of(Foo) == foo_id);
     try std.testing.expect(Id.of(Bar) == bar_id);
+    try std.testing.expect(Id.of(Foo2) == foo2_id);
 
     world_2.componentHi(Bar);
+    world_2.componentHi(Foo2);
     world_2.componentHi(Foo);
 
     try std.testing.expect(Id.of(Foo) == foo_id);
     try std.testing.expect(Id.of(Bar) == bar_id);
+    try std.testing.expect(Id.of(Foo2) == foo2_id);
 }
 
 test "prefab" {
