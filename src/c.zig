@@ -41,10 +41,10 @@ pub const EcsIdWith = 1 << 9;
 pub const EcsIdUnion = 1 << 11;
 pub const EcsIdAlwaysOverride = 1 << 12;
 
-pub const EcsIdHasOnAdd = 1 << 15;
-pub const EcsIdHasOnRemove = 1 << 16;
-pub const EcsIdHasOnSet = 1 << 17;
-pub const EcsIdHasUnSet = 1 << 18;
+pub const EcsIdHasOnAdd = 1 << 16;
+pub const EcsIdHasOnRemove = 1 << 17;
+pub const EcsIdHasOnSet = 1 << 18;
+pub const EcsIdHasUnSet = 1 << 19;
 pub const EcsIdEventMask =
     EcsIdHasOnAdd |
     EcsIdHasOnRemove |
@@ -85,21 +85,22 @@ pub const EcsTableHasBuiltins = 1 << 1;
 pub const EcsTableIsPrefab = 1 << 2;
 pub const EcsTableHasIsA = 1 << 3;
 pub const EcsTableHasChildOf = 1 << 4;
-pub const EcsTableHasPairs = 1 << 5;
-pub const EcsTableHasModule = 1 << 6;
-pub const EcsTableIsDisabled = 1 << 7;
-pub const EcsTableHasCtors = 1 << 8;
-pub const EcsTableHasDtors = 1 << 9;
-pub const EcsTableHasCopy = 1 << 10;
-pub const EcsTableHasMove = 1 << 11;
-pub const EcsTableHasUnion = 1 << 12;
-pub const EcsTableHasToggle = 1 << 13;
-pub const EcsTableHasOverrides = 1 << 14;
+pub const EcsTableHasName = 1 << 5;
+pub const EcsTableHasPairs = 1 << 6;
+pub const EcsTableHasModule = 1 << 7;
+pub const EcsTableIsDisabled = 1 << 8;
+pub const EcsTableHasCtors = 1 << 9;
+pub const EcsTableHasDtors = 1 << 10;
+pub const EcsTableHasCopy = 1 << 11;
+pub const EcsTableHasMove = 1 << 12;
+pub const EcsTableHasUnion = 1 << 13;
+pub const EcsTableHasToggle = 1 << 14;
+pub const EcsTableHasOverrides = 1 << 15;
 
-pub const EcsTableHasOnAdd = 1 << 15;
-pub const EcsTableHasOnRemove = 1 << 16;
-pub const EcsTableHasOnSet = 1 << 17;
-pub const EcsTableHasUnSet = 1 << 18;
+pub const EcsTableHasOnAdd = 1 << 16;
+pub const EcsTableHasOnRemove = 1 << 17;
+pub const EcsTableHasOnSet = 1 << 18;
+pub const EcsTableHasUnSet = 1 << 19;
 
 pub const EcsTableHasObserved = 1 << 20;
 pub const EcsTableHasTarget = 1 << 21;
@@ -192,7 +193,12 @@ pub const FLECS_LOW_FOOTPRINT = @import("package_options").constants.low_footpri
 pub const FLECS_HI_COMPONENT_ID = @import("package_options").constants.hi_component_id;
 pub const FLECS_HI_ID_RECORD_ID = @import("package_options").constants.hi_id_record_id;
 pub const FLECS_SPARSE_PAGE_BITS = @import("package_options").constants.sparse_page_bits;
+pub const FLECS_ENTITY_PAGE_BITS = @import("package_options").constants.entity_page_bits;
 pub const FLECS_USE_OS_ALLOC = @import("package_options").constants.use_os_alloc;
+pub const FLECS_ID_DESC_MAX = @import("package_options").constants.id_desc_max;
+pub const FLECS_TERM_DESC_MAX = 16;
+pub const FLECS_EVENT_DESC_MAX = 8;
+pub const FLECS_VARIABLE_COUNT_MAX = 64;
 
 pub const FLECS_SPARSE_PAGE_SIZE = 1 << FLECS_SPARSE_PAGE_BITS;
 
@@ -448,7 +454,7 @@ pub const ecs_observer_t = extern struct {
 
     filter: ecs_filter_t,
 
-    events: [8]ecs_entity_t,
+    events: [FLECS_EVENT_DESC_MAX]ecs_entity_t,
     event_count: i32,
 
     callback: ?ecs_iter_action_t,
@@ -536,8 +542,7 @@ pub const ecs_sparse_t = extern struct {
     pages: ecs_vec_t,
     size: i32,
     count: i32,
-    max_id_local: u64,
-    max_id: ?*u64,
+    max_id: u64,
     allocator: ?*ecs_allocator_t,
     page_allocator: ?*ecs_block_allocator_t,
 };
@@ -785,6 +790,7 @@ pub const ecs_record_t = extern struct {
     idr: ?*ecs_id_record_t,
     table: ?*ecs_table_t,
     row: u32,
+    dense: i32,
 };
 
 pub const ecs_table_range_t = extern struct {
@@ -928,7 +934,7 @@ pub const ecs_iter_t = extern struct {
     real_world: ?*ecs_world_t,
 
     entities: ?[*]ecs_entity_t,
-    ptrs: ?[*]*anyopaque,
+    ptrs: ?[*]?*anyopaque,
     sizes: ?[*]i32,
     table: ?*ecs_table_t,
     other_table: ?*ecs_table_t,
@@ -1012,7 +1018,7 @@ pub const ecs_entity_desc_t = extern struct {
     root_sep: ?[*:0]const u8,
     symbol: ?[*:0]const u8,
     use_low_id: bool,
-    add: [32]ecs_id_t,
+    add: [FLECS_ID_DESC_MAX]ecs_id_t,
     add_expr: ?[*:0]const u8,
 };
 
@@ -1020,7 +1026,7 @@ pub const ecs_bulk_desc_t = extern struct {
     _canary: i32,
     entities: ?[*]ecs_entity_t,
     count: i32,
-    ids: [32]ecs_id_t,
+    ids: [FLECS_ID_DESC_MAX]ecs_id_t,
     data: ?[*]?*anyopaque,
     table: ?*ecs_table_t,
 };
@@ -1033,7 +1039,7 @@ pub const ecs_component_desc_t = extern struct {
 
 pub const ecs_filter_desc_t = extern struct {
     _canary: i32,
-    terms: [16]ecs_term_t,
+    terms: [FLECS_TERM_DESC_MAX]ecs_term_t,
     terms_buffer: ?[*]ecs_term_t,
     terms_buffer_count: i32,
     storage: ?*ecs_filter_t,
@@ -1062,7 +1068,7 @@ pub const ecs_observer_desc_t = extern struct {
     _canary: i32,
     entity: ecs_entity_t,
     filter: ecs_filter_desc_t,
-    events: [8]ecs_entity_t,
+    events: [FLECS_EVENT_DESC_MAX]ecs_entity_t,
     yield_existing: bool,
     callback: ?ecs_iter_action_t,
     run: ?ecs_run_action_t,
@@ -1082,7 +1088,6 @@ pub const ecs_value_t = extern struct {
 
 pub const ecs_world_info_t = extern struct {
     last_component_id: ecs_entity_t,
-    last_id: ecs_entity_t,
     min_id: ecs_entity_t,
     max_id: ecs_entity_t,
 
@@ -1637,6 +1642,10 @@ pub extern fn ecs_asprintf(
     ...,
 ) ?[*:0]u8;
 
+pub extern fn flecs_to_snake_case(
+    str: [*:0]const u8,
+) [*:0]u8;
+
 pub extern fn ecs_is_fini(
     world: *const ecs_world_t,
 ) bool;
@@ -1784,6 +1793,10 @@ pub extern fn ecs_enable_range_check(
     world: *ecs_world_t,
     enable: bool,
 ) bool;
+
+pub extern fn ecs_get_max_id(
+    world: *const ecs_world_t,
+) ecs_entity_t;
 
 pub extern fn ecs_run_aperiodic(
     world: *ecs_world_t,
@@ -3117,6 +3130,7 @@ pub const ecs_app_desc_t = extern struct {
     frames: i32,
     enable_rest: bool,
     enable_monitor: bool,
+    port: u16,
 
     init: ?ecs_app_init_action_t,
 

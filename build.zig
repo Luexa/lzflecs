@@ -16,7 +16,7 @@ const comptimePrint = std.fmt.comptimePrint;
 const fmtId = std.zig.fmtId;
 const fmtEscapes = std.zig.fmtEscapes;
 
-pub const flecs_version = SemanticVersion.parse("3.2.1") catch unreachable;
+pub const flecs_version = SemanticVersion.parse("3.2.2") catch unreachable;
 
 pub fn build(builder: *Build) void {
     const invoked_by_zls = if (builder.user_input_options.contains("invoked-by-zls"))
@@ -527,6 +527,18 @@ pub const FlecsConstants = struct {
     /// Low Footprint: 6
     sparse_page_bits: ?u16 = null,
 
+    /// Number of bits in an ID that are used to determine the page index when
+    /// used with an entity page.
+    ///
+    /// The number of bits determines the page size, which is `(1 << bits)`.
+    ///
+    /// Lower values decrease memory utilization at the cost of requiring more
+    /// individual allocations.
+    ///
+    /// Default: 12
+    /// Low Footprint: 6
+    entity_page_bits: ?u16 = null,
+
     /// Whether to use the OS allocator specified in the OS API directly, as
     /// opposed to using the builtin block allocator.
     ///
@@ -538,6 +550,12 @@ pub const FlecsConstants = struct {
     /// Default: false
     /// Low Footprint: true
     use_os_alloc: ?bool = null,
+
+    /// Maximum number of IDs to add with `ecs_entity_desc_t` or `entity_bulk_desc_t`.
+    ///
+    /// Default: 32
+    /// Low Footprint: 32
+    id_desc_max: ?u16 = null,
 
     fn fields() *const [fieldNames(FlecsConstants).len]FieldEnum(FlecsConstants) {
         const buf = comptime blk: {
@@ -570,7 +588,9 @@ pub const FlecsConstants = struct {
             .hi_component_id => "Number of reserved component IDs",
             .hi_id_record_id => "Number of reserved ID record IDs",
             .sparse_page_bits => "Number of bits used to determine sparse page size",
+            .entity_page_bits => "Number of bits used to determine entity page size",
             .use_os_alloc => "Whether to use OS allocator directly or not",
+            .id_desc_max => "Maximum number of IDs to add with bulk init methods",
         };
     }
 
@@ -598,8 +618,16 @@ pub const FlecsConstants = struct {
         constants: FlecsConstants,
         comptime field: FieldEnum(FlecsConstants),
     ) switch (field) {
-        .low_footprint, .use_os_alloc => bool,
-        .hi_component_id, .hi_id_record_id, .sparse_page_bits => u16,
+        .low_footprint,
+        .use_os_alloc,
+        => bool,
+
+        .hi_component_id,
+        .hi_id_record_id,
+        .sparse_page_bits,
+        .entity_page_bits,
+        .id_desc_max,
+        => u16,
     } {
         return switch (field) {
             .low_footprint => constants.low_footprint,
@@ -608,7 +636,9 @@ pub const FlecsConstants = struct {
                 .hi_component_id => if (constants.low_footprint) 16 else 256,
                 .hi_id_record_id => if (constants.low_footprint) 16 else 1024,
                 .sparse_page_bits => if (constants.low_footprint) 6 else 12,
+                .entity_page_bits => if (constants.low_footprint) 6 else 12,
                 .use_os_alloc => constants.low_footprint,
+                .id_desc_max => 32,
             },
         };
     }
