@@ -7,6 +7,7 @@ pub const Entity = @import("entity.zig").Entity;
 pub const EntityView = @import("entity.zig").EntityView;
 pub const EntityTypeMeta = @import("entity.zig").EntityTypeMeta;
 pub const World = @import("world.zig").World;
+pub const Filter = @import("filter.zig").Filter;
 pub const testing = @import("testing.zig");
 
 pub const entities = @import("entities.zig");
@@ -17,9 +18,15 @@ pub const enabled_addons = struct {
     pub usingnamespace @import("package_options").enabled_addons;
 };
 
+/// The set of constants defined for this build.
+pub const constants = struct {
+    pub usingnamespace @import("package_options").constants;
+};
+
 pub const flecs_version = @import("package_options").metadata.flecs_version;
 
 test {
     comptime std.testing.refAllDecls(@This());
     comptime std.testing.refAllDecls(enabled_addons);
+    _ = @import("query.zig");
 }
