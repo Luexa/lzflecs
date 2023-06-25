@@ -117,14 +117,14 @@ pub const Id = enum(c.ecs_entity_t) {
 
     /// Return the ID associated with a given type.
     pub inline fn of(comptime T: type) Id {
-        return @intToEnum(Id, IdStorage(T).get());
+        return @enumFromInt(Id, IdStorage(T).get());
     }
 
     /// Special identifier used to request defaults or signal errors.
     ///
     /// Using this constant is discouraged as it defeats the purpose of Zig's
     /// optional types and error handling systems.
-    pub const null_id = @intToEnum(Id, 0);
+    pub const null_id = @enumFromInt(Id, 0);
 
     /// Unwrap an ID into a value guaranteed not to be `Id.null_id`.
     ///
@@ -168,15 +168,15 @@ pub const Id = enum(c.ecs_entity_t) {
         comptime std.debug.assert(@TypeOf(first_id) == Id); // Sanity check.
         comptime std.debug.assert(@TypeOf(second_id) == Id); // Sanity check.
 
-        return @intToEnum(Id, c.ECS_PAIR | (
-            (@enumToInt(first_id) << 32) +
-            @truncate(u32, @enumToInt(second_id))
+        return @enumFromInt(Id, c.ECS_PAIR | (
+            (@intFromEnum(first_id) << 32) +
+            @truncate(u32, @intFromEnum(second_id))
         ));
     }
 
     /// Strip the generation count from the ID.
     pub inline fn withoutGeneration(id: Id) Id {
-        return @intToEnum(Id, c.ecs_strip_generation(@enumToInt(id)));
+        return @enumFromInt(Id, c.ecs_strip_generation(@intFromEnum(id)));
     }
 };
 
@@ -241,8 +241,8 @@ pub const Entity = extern struct {
     pub inline fn addId(entity: Entity, component: Id) void {
         c.ecs_add_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 
@@ -263,8 +263,8 @@ pub const Entity = extern struct {
     pub inline fn removeId(entity: Entity, component: Id) void {
         c.ecs_remove_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 
@@ -305,8 +305,8 @@ pub const Entity = extern struct {
     pub inline fn overrideId(entity: Entity, component: Id) void {
         c.ecs_override_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 
@@ -318,7 +318,7 @@ pub const Entity = extern struct {
     pub inline fn clear(entity: Entity) void {
         c.ecs_clear(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
+            @intFromEnum(entity.id),
         );
     }
 
@@ -330,7 +330,7 @@ pub const Entity = extern struct {
     pub inline fn enable(entity: Entity, enabled: bool) void {
         c.ecs_enable(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
+            @intFromEnum(entity.id),
             enabled,
         );
     }
@@ -358,8 +358,8 @@ pub const Entity = extern struct {
     pub inline fn enableId(entity: Entity, component: Id, enabled: bool) void {
         c.ecs_enable_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
             enabled,
         );
     }
@@ -427,8 +427,8 @@ pub const Entity = extern struct {
     pub inline fn getMutId(entity: Entity, component: Id) *anyopaque {
         return c.ecs_get_mut_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 
@@ -451,8 +451,8 @@ pub const Entity = extern struct {
     pub inline fn modifiedId(entity: Entity, component: Id) void {
         c.ecs_modified_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 
@@ -469,8 +469,8 @@ pub const Entity = extern struct {
     pub inline fn setId(entity: Entity, component: Id, size: usize, ptr: *const anyopaque) void {
         _ = c.ecs_set_id(
             @ptrCast(*c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
             size,
             ptr,
         );
@@ -553,8 +553,8 @@ pub const EntityView = extern struct {
     pub inline fn idEnabled(entity: EntityView, component: Id) bool {
         return c.ecs_is_enabled_id(
             @ptrCast(*const c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 
@@ -577,8 +577,8 @@ pub const EntityView = extern struct {
     pub inline fn getId(entity: EntityView, component: Id) ?*const anyopaque {
         return c.ecs_get_id(
             @ptrCast(*const c.ecs_world_t, entity.world),
-            @enumToInt(entity.id),
-            @enumToInt(component),
+            @intFromEnum(entity.id),
+            @intFromEnum(component),
         );
     }
 

@@ -45,16 +45,16 @@ pub const World = opaque {
             return world.newWithId(Id.of(T));
         }
 
-        return Entity.init(world, @intToEnum(Id, c.ecs_new(
+        return Entity.init(world, @enumFromInt(Id, c.ecs_new(
             @ptrCast(*c.ecs_world_t, world),
         )));
     }
 
     /// Create a new entity with the specified initial component ID.
     pub inline fn newWithId(world: *World, initial_component: Id) Entity {
-        return Entity.init(world, @intToEnum(Id, c.ecs_new_w_id(
+        return Entity.init(world, @enumFromInt(Id, c.ecs_new_w_id(
             @ptrCast(*c.ecs_world_t, world),
-            @enumToInt(initial_component),
+            @intFromEnum(initial_component),
         )));
     }
 
@@ -64,7 +64,7 @@ pub const World = opaque {
             .name = name,
         });
 
-        return Entity.init(world, @intToEnum(Id, c.ecs_entity_init(
+        return Entity.init(world, @enumFromInt(Id, c.ecs_entity_init(
             @ptrCast(*c.ecs_world_t, world),
             &entity_desc,
         )));
@@ -77,7 +77,7 @@ pub const World = opaque {
         });
         entity_desc.add[0] = c.EcsPrefab;
 
-        return Entity.init(world, @intToEnum(Id, c.ecs_entity_init(
+        return Entity.init(world, @enumFromInt(Id, c.ecs_entity_init(
             @ptrCast(*c.ecs_world_t, world),
             &entity_desc,
         )));
@@ -104,7 +104,7 @@ pub const World = opaque {
     pub inline fn bulkNewWithId(world: *World, count: i32, initial_component: Id) ?[]const Id {
         if (c.ecs_bulk_new_w_id(
             @ptrCast(*c.ecs_world_t, world),
-            @enumToInt(initial_component),
+            @intFromEnum(initial_component),
             count,
         )) |new_entities| {
             return @ptrCast([*]const Id, new_entities)[0..@intCast(usize, count)];
@@ -122,7 +122,7 @@ pub const World = opaque {
     pub inline fn delete(world: *World, entity_id: Id) void {
         c.ecs_delete(
             @ptrCast(*c.ecs_world_t, world),
-            @enumToInt(entity_id),
+            @intFromEnum(entity_id),
         );
     }
 
@@ -261,9 +261,9 @@ pub const World = opaque {
 
             else => @compileError("Cannot derive entity ID from " ++ @typeName(ParentType)),
         };
-        return @intToEnum(Id, c.ecs_lookup_child(
+        return @enumFromInt(Id, c.ecs_lookup_child(
             @ptrCast(*const c.ecs_world_t, world),
-            @enumToInt(parent_id),
+            @intFromEnum(parent_id),
             name,
         ));
     }
@@ -347,9 +347,9 @@ pub const World = opaque {
 
             else => @compileError("Cannot derive entity ID from " ++ @typeName(ParentType)),
         };
-        return @intToEnum(Id, c.ecs_lookup_path_w_sep(
+        return @enumFromInt(Id, c.ecs_lookup_path_w_sep(
             @ptrCast(*const c.ecs_world_t, world),
-            @enumToInt(parent_id),
+            @intFromEnum(parent_id),
             path,
             options.sep,
             options.prefix,
@@ -435,7 +435,7 @@ pub const World = opaque {
         symbol: [*:0]const u8,
         lookup_as_path: bool,
     ) Id {
-        return @intToEnum(Id, c.ecs_lookup_symbol(
+        return @enumFromInt(Id, c.ecs_lookup_symbol(
             @ptrCast(*const c.ecs_world_t, world),
             symbol,
             lookup_as_path,
@@ -463,9 +463,9 @@ pub const World = opaque {
             type => Id.of(scope),
             else => @compileError("Cannot derive entity ID from " ++ @typeName(ScopeType)),
         };
-        return @intToEnum(Id, c.ecs_set_scope(
+        return @enumFromInt(Id, c.ecs_set_scope(
             @ptrCast(*c.ecs_world_t, world),
-            @enumToInt(scope_id),
+            @intFromEnum(scope_id),
         ));
     }
 
@@ -473,7 +473,7 @@ pub const World = opaque {
     ///
     /// Returns the scope set by `setScope`, or `Id.null_id` if no scope was set.
     pub inline fn getScope(world: *const World) Id {
-        return @intToEnum(Id, c.ecs_get_scope(
+        return @enumFromInt(Id, c.ecs_get_scope(
             @ptrCast(*const c.ecs_world_t, world),
         ));
     }
@@ -540,7 +540,7 @@ pub const World = opaque {
     pub inline fn isValid(world: *const World, id: Id) bool {
         return c.ecs_is_valid(
             @ptrCast(*const c.ecs_world_t, world),
-            @enumToInt(id),
+            @intFromEnum(id),
         );
     }
 
@@ -551,7 +551,7 @@ pub const World = opaque {
     pub inline fn isAlive(world: *const World, id: Id) bool {
         return c.ecs_is_alive(
             @ptrCast(*const c.ecs_world_t, world),
-            @enumToInt(id),
+            @intFromEnum(id),
         );
     }
 };

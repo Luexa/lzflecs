@@ -232,11 +232,11 @@ pub const PackageOptions = struct {
         };
 
         const generated_directory = builder.addWriteFiles();
-        generated_directory.add("package_options.zig", root_file_contents);
-        generated_directory.add("metadata.zig", metadata_file_contents);
-        generated_directory.add("enabled_addons.zig", enabled_addons_file_contents);
-        generated_directory.add("types.zig", types_file_contents);
-        generated_directory.add("constants.zig", constants_file_contents);
+        const package_options = generated_directory.add("package_options.zig", root_file_contents);
+        _ = generated_directory.add("metadata.zig", metadata_file_contents);
+        _ = generated_directory.add("enabled_addons.zig", enabled_addons_file_contents);
+        _ = generated_directory.add("types.zig", types_file_contents);
+        _ = generated_directory.add("constants.zig", constants_file_contents);
 
         if (options._invoked_by_zls) {
             var progress = std.Progress{};
@@ -246,7 +246,7 @@ pub const PackageOptions = struct {
         }
 
         return builder.createModule(.{
-            .source_file = generated_directory.getFileSource("package_options.zig").?,
+            .source_file = package_options,
         });
     }
 };
