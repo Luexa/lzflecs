@@ -187,7 +187,7 @@ pub const ECS_COMPONENT_MASK: u64 = ~ECS_ID_FLAGS_MASK;
 pub const ECS_ROW_MASK: u32 = 0x0FFFFFFF;
 pub const ECS_ROW_FLAGS_MASK: u32 = ~ECS_ROW_MASK;
 
-pub const ECS_MAX_COMPONENT_ID: u32 = ~@intCast(u32, ECS_ID_FLAGS_MASK >> 32);
+pub const ECS_MAX_COMPONENT_ID: u32 = ~@as(u32, @intCast(ECS_ID_FLAGS_MASK >> 32));
 
 pub const FLECS_LOW_FOOTPRINT = @import("package_options").constants.low_footprint;
 pub const FLECS_HI_COMPONENT_ID = @import("package_options").constants.hi_component_id;

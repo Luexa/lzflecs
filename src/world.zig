@@ -16,24 +16,24 @@ pub const World = opaque {
     /// The world can be cleaned up with `deinit()`.
     pub inline fn init(argv: ?[]const [*:0]const u8) *World {
         if (argv) |argv_| {
-            return @ptrCast(*World, c.ecs_init_w_args(
-                @intCast(c_int, argv_.len),
+            return @ptrCast(c.ecs_init_w_args(
+                @intCast(argv_.len),
                 argv_.ptr,
             ).?);
         } else {
-            return @ptrCast(*World, c.ecs_init().?);
+            return @ptrCast(c.ecs_init().?);
         }
     }
 
     /// Deinitialize the world and free any resources associated with it.
     pub inline fn deinit(world: *World) void {
-        _ = c.ecs_fini(@ptrCast(*c.ecs_world_t, world));
+        _ = c.ecs_fini(@ptrCast(world));
     }
 
     /// If this world object is actually a stage, return the world from which
     /// the stage was created. Otherwise, return self.
     pub inline fn getWorld(world: *const World) *const World {
-        return @ptrCast(*const World, c.ecs_get_world(world));
+        return @ptrCast(c.ecs_get_world(world));
     }
 
     /// Create a new entity.
@@ -45,17 +45,17 @@ pub const World = opaque {
             return world.newWithId(Id.of(T));
         }
 
-        return Entity.init(world, @enumFromInt(Id, c.ecs_new(
-            @ptrCast(*c.ecs_world_t, world),
-        )));
+        const new_id: Id = @enumFromInt(c.ecs_new(@ptrCast(world)));
+        return Entity.init(world, new_id);
     }
 
     /// Create a new entity with the specified initial component ID.
     pub inline fn newWithId(world: *World, initial_component: Id) Entity {
-        return Entity.init(world, @enumFromInt(Id, c.ecs_new_w_id(
-            @ptrCast(*c.ecs_world_t, world),
+        const new_id: Id = @enumFromInt(c.ecs_new_w_id(
+            @ptrCast(world),
             @intFromEnum(initial_component),
-        )));
+        ));
+        return Entity.init(world, new_id);
     }
 
     /// Create a new entity with the specified `name`.
@@ -64,10 +64,11 @@ pub const World = opaque {
             .name = name,
         });
 
-        return Entity.init(world, @enumFromInt(Id, c.ecs_entity_init(
-            @ptrCast(*c.ecs_world_t, world),
+        const new_id: Id = @enumFromInt(c.ecs_entity_init(
+            @ptrCast(world),
             &entity_desc,
-        )));
+        ));
+        return Entity.init(world, new_id);
     }
 
     /// Create a new prefab with the given `name`.
@@ -77,10 +78,11 @@ pub const World = opaque {
         });
         entity_desc.add[0] = c.EcsPrefab;
 
-        return Entity.init(world, @enumFromInt(Id, c.ecs_entity_init(
-            @ptrCast(*c.ecs_world_t, world),
+        const new_id: Id = @enumFromInt(c.ecs_entity_init(
+            @ptrCast(world),
             &entity_desc,
-        )));
+        ));
+        return Entity.init(world, new_id);
     }
 
     /// Create N new entities.
@@ -103,11 +105,11 @@ pub const World = opaque {
     /// be copied to caller-owned memory.
     pub inline fn bulkNewWithId(world: *World, count: i32, initial_component: Id) ?[]const Id {
         if (c.ecs_bulk_new_w_id(
-            @ptrCast(*c.ecs_world_t, world),
+            @ptrCast(world),
             @intFromEnum(initial_component),
             count,
         )) |new_entities| {
-            return @ptrCast([*]const Id, new_entities)[0..@intCast(usize, count)];
+            return @as([*]const Id, @ptrCast(new_entities))[0..@intCast(count)];
         }
         return null;
     }
@@ -121,7 +123,7 @@ pub const World = opaque {
     /// recycled will grow indefinitely.
     pub inline fn delete(world: *World, entity_id: Id) void {
         c.ecs_delete(
-            @ptrCast(*c.ecs_world_t, world),
+            @ptrCast(world),
             @intFromEnum(entity_id),
         );
     }
@@ -153,7 +155,7 @@ pub const World = opaque {
     /// and passed around for the most part. It only exists to allow user code
     /// to replicate the behavior of builtin global entities like `WorldEntity`.
     pub inline fn globalEntity(world: *World, comptime GlobalEntity: type) void {
-        const c_world = @ptrCast(*c.ecs_world_t, world);
+        const c_world: *c.ecs_world_t = @ptrCast(world);
         const id_handle = @import("entity.zig").IdStorage(GlobalEntity);
 
         switch (id_handle.intended_use) {
@@ -173,7 +175,7 @@ pub const World = opaque {
 
     /// Shared implementation for `component` and `componentHi`.
     inline fn componentImpl(world: *World, comptime Component: type, use_low_id: bool) void {
-        const c_world = @ptrCast(*c.ecs_world_t, world);
+        const c_world: *c.ecs_world_t = @ptrCast(world);
         const id_handle = @import("entity.zig").IdStorage(Component);
 
         switch (id_handle.intended_use) {
@@ -261,8 +263,8 @@ pub const World = opaque {
 
             else => @compileError("Cannot derive entity ID from " ++ @typeName(ParentType)),
         };
-        return @enumFromInt(Id, c.ecs_lookup_child(
-            @ptrCast(*const c.ecs_world_t, world),
+        return @enumFromInt(c.ecs_lookup_child(
+            @ptrCast(world),
             @intFromEnum(parent_id),
             name,
         ));
@@ -347,8 +349,8 @@ pub const World = opaque {
 
             else => @compileError("Cannot derive entity ID from " ++ @typeName(ParentType)),
         };
-        return @enumFromInt(Id, c.ecs_lookup_path_w_sep(
-            @ptrCast(*const c.ecs_world_t, world),
+        return @enumFromInt(c.ecs_lookup_path_w_sep(
+            @ptrCast(world),
             @intFromEnum(parent_id),
             path,
             options.sep,
@@ -435,8 +437,8 @@ pub const World = opaque {
         symbol: [*:0]const u8,
         lookup_as_path: bool,
     ) Id {
-        return @enumFromInt(Id, c.ecs_lookup_symbol(
-            @ptrCast(*const c.ecs_world_t, world),
+        return @enumFromInt(c.ecs_lookup_symbol(
+            @ptrCast(world),
             symbol,
             lookup_as_path,
         ));
@@ -463,8 +465,8 @@ pub const World = opaque {
             type => Id.of(scope),
             else => @compileError("Cannot derive entity ID from " ++ @typeName(ScopeType)),
         };
-        return @enumFromInt(Id, c.ecs_set_scope(
-            @ptrCast(*c.ecs_world_t, world),
+        return @enumFromInt(c.ecs_set_scope(
+            @ptrCast(world),
             @intFromEnum(scope_id),
         ));
     }
@@ -473,9 +475,7 @@ pub const World = opaque {
     ///
     /// Returns the scope set by `setScope`, or `Id.null_id` if no scope was set.
     pub inline fn getScope(world: *const World) Id {
-        return @enumFromInt(Id, c.ecs_get_scope(
-            @ptrCast(*const c.ecs_world_t, world),
-        ));
+        return @enumFromInt(c.ecs_get_scope(@ptrCast(world)));
     }
 
     /// Set search path for lookup operations.
@@ -509,9 +509,9 @@ pub const World = opaque {
         world: *World,
         lookup_path: [*:Id.null_id]const Id,
     ) [*:Id.null_id]Id {
-        return @ptrCast([*:Id.null_id]Id, c.ecs_set_lookup_path(
-            @ptrCast(*c.ecs_world_t, world),
-            @ptrCast([*:0]const c.ecs_entity_t, lookup_path),
+        return @ptrCast(c.ecs_set_lookup_path(
+            @ptrCast(world),
+            @ptrCast(lookup_path),
         ));
     }
 
@@ -519,9 +519,7 @@ pub const World = opaque {
     ///
     /// Returns the lookup path set by `setLookupPath`.
     pub inline fn getLookupPath(world: *const World) [*:Id.null_id]Id {
-        return @ptrCast([*:Id.null_id]Id, c.ecs_get_lookup_path(
-            @ptrCast(*const c.ecs_world_t, world),
-        ));
+        return @ptrCast(c.ecs_get_lookup_path(@ptrCast(world)));
     }
 
     /// Test whether an entity ID is valid.
@@ -538,10 +536,7 @@ pub const World = opaque {
     /// The operation will return false for an ID that exists and is not alive, as
     /// using this ID with an API operation would cause it to assert.
     pub inline fn isValid(world: *const World, id: Id) bool {
-        return c.ecs_is_valid(
-            @ptrCast(*const c.ecs_world_t, world),
-            @intFromEnum(id),
-        );
+        return c.ecs_is_valid(@ptrCast(world), @intFromEnum(id));
     }
 
     /// Test whether an entity ID is alive.
@@ -549,10 +544,7 @@ pub const World = opaque {
     /// An entity ID is alive when it has been returned by `World.new` (or similar)
     /// or if it is not empty (components have been explicitly added to the ID).
     pub inline fn isAlive(world: *const World, id: Id) bool {
-        return c.ecs_is_alive(
-            @ptrCast(*const c.ecs_world_t, world),
-            @intFromEnum(id),
-        );
+        return c.ecs_is_alive(@ptrCast(world), @intFromEnum(id));
     }
 };
 

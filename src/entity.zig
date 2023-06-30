@@ -117,14 +117,14 @@ pub const Id = enum(c.ecs_entity_t) {
 
     /// Return the ID associated with a given type.
     pub inline fn of(comptime T: type) Id {
-        return @enumFromInt(Id, IdStorage(T).get());
+        return @enumFromInt(IdStorage(T).get());
     }
 
     /// Special identifier used to request defaults or signal errors.
     ///
     /// Using this constant is discouraged as it defeats the purpose of Zig's
     /// optional types and error handling systems.
-    pub const null_id = @enumFromInt(Id, 0);
+    pub const null_id: Id = @enumFromInt(0);
 
     /// Unwrap an ID into a value guaranteed not to be `Id.null_id`.
     ///
@@ -168,15 +168,15 @@ pub const Id = enum(c.ecs_entity_t) {
         comptime std.debug.assert(@TypeOf(first_id) == Id); // Sanity check.
         comptime std.debug.assert(@TypeOf(second_id) == Id); // Sanity check.
 
-        return @enumFromInt(Id, c.ECS_PAIR | (
+        return @enumFromInt(c.ECS_PAIR | (
             (@intFromEnum(first_id) << 32) +
-            @truncate(u32, @intFromEnum(second_id))
+            @as(u32, @truncate(@intFromEnum(second_id)))
         ));
     }
 
     /// Strip the generation count from the ID.
     pub inline fn withoutGeneration(id: Id) Id {
-        return @enumFromInt(Id, c.ecs_strip_generation(@intFromEnum(id)));
+        return @enumFromInt(c.ecs_strip_generation(@intFromEnum(id)));
     }
 };
 
@@ -210,7 +210,7 @@ pub const Entity = extern struct {
     /// Reinterpret `entity` as an `EntityView` without attempting to ascertain
     /// the original world in the case that `entity.world` is actually a stage.
     pub inline fn asView(entity: *const Entity) *const EntityView {
-        return @ptrCast(*const EntityView, entity);
+        return @ptrCast(entity);
     }
 
     /// Create a new entity with an `(IsA, prefab)` relationship.
@@ -240,7 +240,7 @@ pub const Entity = extern struct {
     /// already has this component, calling this function has no side effects.
     pub inline fn addId(entity: Entity, component: Id) void {
         c.ecs_add_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
@@ -262,7 +262,7 @@ pub const Entity = extern struct {
     /// effects.
     pub inline fn removeId(entity: Entity, component: Id) void {
         c.ecs_remove_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
@@ -304,7 +304,7 @@ pub const Entity = extern struct {
     /// that is inherited (reachable through an `IsA` relationship).
     pub inline fn overrideId(entity: Entity, component: Id) void {
         c.ecs_override_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
@@ -317,7 +317,7 @@ pub const Entity = extern struct {
     /// being recycled.
     pub inline fn clear(entity: Entity) void {
         c.ecs_clear(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
         );
     }
@@ -329,7 +329,7 @@ pub const Entity = extern struct {
     /// unless the system explicitly specifies the `Disabled` tag.
     pub inline fn enable(entity: Entity, enabled: bool) void {
         c.ecs_enable(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             enabled,
         );
@@ -357,7 +357,7 @@ pub const Entity = extern struct {
     /// as enabling/disabling is cheaper than a regular add or remove.
     pub inline fn enableId(entity: Entity, component: Id, enabled: bool) void {
         c.ecs_enable_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
             enabled,
@@ -408,9 +408,7 @@ pub const Entity = extern struct {
     ///  - return a pointer to temporary storage if the component does not yet exist, or
     ///  - return a pointer to the existing component if it exists
     pub inline fn getMut(entity: Entity, comptime Component: type) *Component {
-        const erased_ptr = entity.getMutId(Id.of(Component));
-        const aligned_ptr = @alignCast(@alignOf(Component), erased_ptr);
-        return @ptrCast(*Component, aligned_ptr);
+        return @ptrCast(@alignCast(entity.getMutId(Id.of(Component))));
     }
 
     /// Get a mutable pointer to a component.
@@ -426,7 +424,7 @@ pub const Entity = extern struct {
     /// Caller is responsible for casting the returned pointer to the correct type.
     pub inline fn getMutId(entity: Entity, component: Id) *anyopaque {
         return c.ecs_get_mut_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
@@ -450,7 +448,7 @@ pub const Entity = extern struct {
     /// This operation is commonly used together with `getMutId`.
     pub inline fn modifiedId(entity: Entity, component: Id) void {
         c.ecs_modified_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
@@ -468,7 +466,7 @@ pub const Entity = extern struct {
     /// This operation is equivalent to calling `getMutId` and `modifiedId`.
     pub inline fn setId(entity: Entity, component: Id, size: usize, ptr: *const anyopaque) void {
         _ = c.ecs_set_id(
-            @ptrCast(*c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
             size,
@@ -517,7 +515,7 @@ pub const EntityView = extern struct {
     /// If the provided `world` is actually a stage, the result will instead be
     /// associated with the world that created the stage.
     pub inline fn init(world: *const World, id_or_type: anytype) EntityView {
-        return initKeepStage(@ptrCast(*const World, c.ecs_get_world(world)), id_or_type);
+        return initKeepStage(@ptrCast(c.ecs_get_world(world)), id_or_type);
     }
 
     /// Associate an existing entity type or ID with a world.
@@ -552,7 +550,7 @@ pub const EntityView = extern struct {
     /// that has not been disabled by `Entity.enableId`.
     pub inline fn idEnabled(entity: EntityView, component: Id) bool {
         return c.ecs_is_enabled_id(
-            @ptrCast(*const c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
@@ -563,9 +561,7 @@ pub const EntityView = extern struct {
     /// This operation obtains a `const` pointer to the requested component.
     /// If the entity does not have the component, the returned pointer is `null`.
     pub inline fn get(entity: EntityView, comptime Component: type) ?*const Component {
-        const erased_ptr = entity.getId(Id.of(Component));
-        const aligned_ptr = @alignCast(@alignOf(Component), erased_ptr);
-        return @ptrCast(?*const Component, aligned_ptr);
+        return @ptrCast(@alignCast(entity.getId(Id.of(Component))));
     }
 
     /// Get an immutable pointer to a component.
@@ -576,7 +572,7 @@ pub const EntityView = extern struct {
     /// Caller is responsible for casting the returned pointer to the correct type.
     pub inline fn getId(entity: EntityView, component: Id) ?*const anyopaque {
         return c.ecs_get_id(
-            @ptrCast(*const c.ecs_world_t, entity.world),
+            @ptrCast(entity.world),
             @intFromEnum(entity.id),
             @intFromEnum(component),
         );
